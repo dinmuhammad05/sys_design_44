@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="uz" data-dars="1.1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>1.1 Kompyuter — tizim yuragi</title>
+<meta name="description" content="Kompyuter qanday ishlaydi: von Neumann sikli, xotira ierarxiyasi, operatsion tizim va bitta so'rovning to'liq yo'li.">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230d1117'/><rect x='8' y='8' width='16' height='16' rx='3' fill='none' stroke='%2358a6ff' stroke-width='2'/><rect x='13' y='13' width='6' height='6' fill='%2358a6ff'/></svg>">
+</head>
+<body>
+
+<header class="topbar" data-topbar></header>
+
+<main class="wrap">
+<article class="lesson">
+
+  <p class="eyebrow" data-eyebrow>Asosiy mavzu 1 · Kompyuter anatomiyasi</p>
+  <h1>1.1 Kompyuter — tizim yuragi</h1>
+
+  <p class="lead">
+    Qanchalik katta tizim qurmang — Kubernetes klasteri, 200 ta microservice, global CDN —
+    oxir-oqibat kimdir bir joyda bitta protsessor yadrosida bitta instruksiyani bajaradi.
+    Tizim dizaynidagi deyarli barcha «hikmatlar» aslida shu bitta mashinaning fizik
+    chegaralaridan kelib chiqqan. Shuning uchun birinchi dars — kompyuterning o'zi haqida.
+  </p>
+
+  <nav class="toc" data-toc></nav>
+
+  <h2 id="holat-mashinasi">Kompyuter aslida nima: boshqariladigan holat mashinasi</h2>
+
+  <p>
+    Kompyuter «hisoblaydigan qurilma» degan ta'rif juda yuzaki. Amaliy jihatdan foydali ta'rif quyidagicha:
+    <strong>kompyuter — bu holatni (state) saqlaydigan va shu holatni oldindan yozilgan qoidalar bo'yicha
+    qadamba-qadam o'zgartiradigan mashina.</strong>
+  </p>
+
+  <p>Uning uchta ajralmas qismi bor:</p>
+
+  <ul>
+    <li><strong>Holat (state)</strong> — registrlar, cache, RAM, disk, tarmoq buferidagi baytlar. Hozirgi paytda mashina «nimani biladi».</li>
+    <li><strong>O'zgartirish qoidalari</strong> — instruksiyalar to'plami (<span class="term">instruction set</span>). Har bir instruksiya holatni ozgina o'zgartiradi.</li>
+    <li><strong>Vaqt</strong> — soat signali (<span class="term">clock</span>). Har bir taktda mashina oldinga bir qadam siljiydi.</li>
+  </ul>
+
+  <p>
+    Bu ta'rifning ahamiyati shundaki, u darhol tizim dizaynining ikkita asosiy savolini keltirib chiqaradi:
+    <em>holat qayerda turadi</em> va <em>uni o'zgartirish qancha vaqt oladi</em>. Taqsimlangan tizimlardagi
+    replikatsiya, cache invalidation, konsistentlik — hammasi shu ikki savolning kattaroq miqyosdagi ko'rinishi.
+  </p>
+
+  <figure class="figure">
+    <svg viewBox="0 0 700 300" width="100%" role="img" aria-label="Kompyuterning asosiy bloklari sxemasi">
+      <rect class="svg-box svg-box--accent" x="20" y="30" width="430" height="235" rx="8"/>
+      <text class="svg-label svg-label--accent" x="34" y="50">CPU (protsessor paketi)</text>
+
+      <rect class="svg-box" x="35" y="62" width="128" height="112" rx="5"/>
+      <text class="svg-label svg-label--strong" x="48" y="82">Yadro 1</text>
+      <text class="svg-label" x="48" y="102">registrlar · ALU</text>
+      <text class="svg-label" x="48" y="122">L1: 64 KB (~1 ns)</text>
+      <text class="svg-label" x="48" y="142">L2: 1 MB (~4 ns)</text>
+      <text class="svg-label" x="48" y="162">pipeline · OoO</text>
+
+      <rect class="svg-box" x="173" y="62" width="128" height="112" rx="5"/>
+      <text class="svg-label svg-label--strong" x="186" y="82">Yadro 2</text>
+      <text class="svg-label" x="186" y="102">registrlar · ALU</text>
+      <text class="svg-label" x="186" y="122">L1: 64 KB</text>
+      <text class="svg-label" x="186" y="142">L2: 1 MB</text>
+
+      <rect class="svg-box" x="311" y="62" width="128" height="112" rx="5"/>
+      <text class="svg-label svg-label--strong" x="324" y="82">Yadro N</text>
+      <text class="svg-label" x="324" y="102">…</text>
+
+      <rect class="svg-box svg-box--accent" x="35" y="186" width="404" height="30" rx="5"/>
+      <text class="svg-label svg-label--strong" x="48" y="205">L3 cache — yadrolar uchun umumiy (~32 MB, ~15 ns)</text>
+
+      <rect class="svg-box" x="35" y="224" width="404" height="28" rx="5"/>
+      <text class="svg-label" x="48" y="242">Xotira kontrolleri · PCIe kontrolleri</text>
+
+      <path class="svg-arrow" d="M450 100 H 505" marker-end="url(#a11)"/>
+      <path class="svg-arrow" d="M450 180 H 505" marker-end="url(#a11)"/>
+      <path class="svg-arrow" d="M450 245 H 505" marker-end="url(#a11)"/>
+
+      <rect class="svg-box" x="510" y="72" width="170" height="58" rx="6"/>
+      <text class="svg-label svg-label--strong" x="524" y="94">RAM — 32 GB</text>
+      <text class="svg-label" x="524" y="114">~80 ns · ~50 GB/s</text>
+
+      <rect class="svg-box" x="510" y="152" width="170" height="58" rx="6"/>
+      <text class="svg-label svg-label--strong" x="524" y="174">NVMe SSD — 1 TB</text>
+      <text class="svg-label" x="524" y="194">~100 µs · ~3 GB/s</text>
+
+      <rect class="svg-box" x="510" y="218" width="170" height="58" rx="6"/>
+      <text class="svg-label svg-label--strong" x="524" y="240">NIC — 10 Gbit/s</text>
+      <text class="svg-label" x="524" y="260">DC ichida ~0.5 ms</text>
+
+      <defs>
+        <marker id="a11" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+          <path d="M0,0 L7,3.5 L0,7 z" fill="#2a4d7a"/>
+        </marker>
+      </defs>
+    </svg>
+    <figcaption>1-sxema. Bitta serverning anatomiyasi. Diqqat qiling: markazdan uzoqlashgan sari
+    hajm oshadi, tezlik esa tushadi — bu tasodif emas, iqtisodiy va fizik majburiyat.</figcaption>
+  </figure>
+
+  <h2 id="von-neumann">Yurak urishi: fetch → decode → execute</h2>
+
+  <p>
+    Protsessor bajaradigan asosiy sikl ajablanarli darajada oddiy. Unda <span class="term">PC</span>
+    (program counter) degan registr bor — u «keyingi instruksiya xotiraning qaysi manzilida» degan savolga javob beradi.
+  </p>
+
+<p class="code-label">Konseptual sikl</p>
+<pre><code>while (true) {
+    instruction = memory[PC];   // FETCH  — instruksiyani o'qish
+    PC = PC + instruction.size; // keyingisiga siljish
+    decoded = decode(instruction); // DECODE — nima qilish kerakligini aniqlash
+    execute(decoded);           // EXECUTE — registr/xotira/flagni o'zgartirish
+}</code></pre>
+
+  <p>
+    Bu siklning butun dunyo dasturiy ta'minoti uchun yetarli ekani hayratlanarli.
+    Lekin real protsessor bu siklni «sodda» tarzda bajarmaydi — aks holda u juda sekin bo'lardi.
+    Uch xil hiyla ishlatiladi va ularning har biri sizning kodingizning tezligiga ta'sir qiladi:
+  </p>
+
+  <h3>1. Pipeline (konveyer)</h3>
+  <p>
+    Instruksiya bir necha bosqichdan o'tadi (fetch, decode, execute, memory, write-back).
+    Zavod konveyeri kabi, protsessor bir vaqtning o'zida turli bosqichlarda 15–20 ta instruksiyani ushlab turadi.
+    Natijada har taktda o'rtacha bittadan ko'p instruksiya tugaydi.
+  </p>
+  <p>
+    Muammo: <code>if</code>. Konveyer to'lgan bo'lishi uchun protsessor shartning natijasini
+    <em>oldindan bilishi</em> kerak, lekin natija hali hisoblanmagan. Shuning uchun u
+    <span class="term">branch prediction</span> qiladi — taxmin qiladi va shu yo'nalishda ishlashda davom etadi.
+    Taxmin noto'g'ri chiqsa, konveyer tozalanadi va ~15–20 takt behuda ketadi.
+  </p>
+
+  <h3>2. Out-of-order va superscalar bajarish</h3>
+  <p>
+    Protsessor instruksiyalarni siz yozgan tartibda emas, <strong>bog'liqlik grafigi</strong> ruxsat bergan tartibda bajaradi.
+    Agar bitta instruksiya RAM'dan ma'lumot kutayotgan bo'lsa, undan keyingi mustaqil instruksiyalar
+    o'sha kutish paytida bajarilib ketadi. Yakuniy natija esa to'g'ri tartibda «e'lon qilinadi».
+  </p>
+
+  <h3>3. Spekulyativ bajarish</h3>
+  <p>
+    Protsessor taxmin qilingan yo'l bo'yicha ishni oldindan qilib qo'yadi va keyin natijani tasdiqlaydi yoki tashlab yuboradi.
+  </p>
+
+  <div class="note">
+    <span class="note__title">Nega bu muhim</span>
+    <p>
+      Siz «bir qator kod = bir qadam» deb o'ylaysiz. Aslida protsessor har taktda 4–6 ta instruksiyani
+      parallel bajarishi mumkin. Shuning uchun <strong>instruksiyalar sonini sanash</strong> bilan tezlikni
+      bashorat qilib bo'lmaydi. Real tizimlarda protsessor ko'pincha <em>ishlamaydi</em> — u xotira kutib turadi.
+      Keyingi bo'lim aynan shu haqida.
+    </p>
+  </div>
+
+  <h2 id="xotira-ierarxiyasi">Xotira ierarxiyasi: haqiqiy bottleneck</h2>
+
+  <p>
+    Protsessor 3 GHz da ishlasa, bitta takt ≈ 0.33 nanosekund. Shu vaqt ichida yorug'lik atigi 10 sm yuradi.
+    RAM'dan ma'lumot olish esa ~80 ns — ya'ni ~240 takt. Boshqacha aytganda:
+    <strong>bitta RAM murojaati uchun protsessor 240 ta instruksiya bajarishi mumkin bo'lgan vaqtni bekorga o'tkazadi.</strong>
+  </p>
+
+  <p>
+    Shuning uchun protsessor va RAM orasiga kichik, lekin tez xotiralar — <span class="term">cache</span> —
+    joylashtirilgan. Bu ierarxiyaning raqamlari sizning boshingizda yod bo'lishi kerak:
+  </p>
+
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Qayerdan</th><th>Kechikish</th><th>Inson miqyosida (1 takt = 1 soniya)</th><th>Tipik hajm</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Registr</td><td class="num">~0.3 ns</td><td>1 soniya — qo'lingizdagi qog'oz</td><td class="num">~1 KB</td></tr>
+      <tr><td>L1 cache</td><td class="num">~1 ns</td><td>3 soniya — stol ustidagi daftar</td><td class="num">64 KB</td></tr>
+      <tr><td>L2 cache</td><td class="num">~4 ns</td><td>12 soniya — tortmadagi papka</td><td class="num">1–2 MB</td></tr>
+      <tr><td>L3 cache</td><td class="num">~15 ns</td><td>45 soniya — xonadagi javon</td><td class="num">8–64 MB</td></tr>
+      <tr><td>RAM</td><td class="num">~80 ns</td><td>4 daqiqa — binoning arxivi</td><td class="num">16–512 GB</td></tr>
+      <tr><td>NVMe SSD (tasodifiy o'qish)</td><td class="num">~100 µs</td><td>3.5 kun — boshqa shahardan pochta</td><td class="num">0.5–8 TB</td></tr>
+      <tr><td>Bitta DC ichida tarmoq (RTT)</td><td class="num">~0.5 ms</td><td>2.5 hafta</td><td>—</td></tr>
+      <tr><td>HDD tasodifiy o'qish</td><td class="num">~8 ms</td><td>10 oy</td><td class="num">1–20 TB</td></tr>
+      <tr><td>Kontinentlararo tarmoq (RTT)</td><td class="num">~150 ms</td><td>16 yil</td><td>—</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>
+    O'ng ustunga diqqat bilan qarang. Bu jadval tizim dizaynidagi ko'p qarorlarni bir o'zi tushuntiradi:
+    nega cache qo'yiladi, nega N+1 query falokat, nega CDN foydalanuvchiga yaqin joylashtiriladi,
+    nega bitta so'rov ichida 30 ta microservice chaqirish yomon fikr.
+  </p>
+
+  <h3>Cache qanday ishlaydi: cache line va lokallik</h3>
+
+  <p>
+    Cache bitta baytni emas, <strong>64 baytlik blok</strong> (<span class="term">cache line</span>) ni olib keladi.
+    Ya'ni siz massivning bitta elementini so'rasangiz, uning qo'shnilari ham bepul keladi.
+    Shundan ikkita qoida chiqadi:
+  </p>
+  <ul>
+    <li><strong>Fazoviy lokallik</strong> (spatial locality) — yonma-yon turgan ma'lumotni ketma-ket o'qish arzon.</li>
+    <li><strong>Vaqtinchalik lokallik</strong> (temporal locality) — yaqinda ishlatilgan ma'lumot hali cache'da turibdi.</li>
+  </ul>
+
+  <p>Bu nazariya emas — quyidagi ikkita sikl <em>bir xil</em> amallarni bajaradi, lekin tezligi 5–10 barobar farq qiladi:</p>
+
+<p class="code-label">Xotira joylashuvi tezlikni belgilaydi</p>
+<pre><code>// A) Ketma-ket yurish — har 64 baytda bitta cache miss, qolgani tekin
+long sum = 0;
+for (int i = 0; i &lt; N; i++) sum += a[i];
+
+// B) Katta qadam bilan yurish — deyarli har bir murojaat yangi cache line
+long sum = 0;
+for (int i = 0; i &lt; N; i += 16) sum += a[i];   // 16 * 4 bayt = 64 bayt
+// B kamroq element o'qiydi, lekin ko'pincha SEKINROQ tugaydi.
+
+// C) Klassik misol: matritsani qator bo'ylab vs ustun bo'ylab yurish
+for (i...) for (j...) s += m[i][j];   // qator bo'ylab: cache-do'st
+for (j...) for (i...) s += m[i][j];   // ustun bo'ylab: har qadamda miss</code></pre>
+
+  <p>
+    Xuddi shu sabab bilan <code>ArrayList</code>/<code>vector</code> ko'pincha <code>LinkedList</code> dan tez:
+    bog'langan ro'yxatning elementlari xotirada tarqoq yotadi, har bir <code>next</code> — yangi cache miss.
+    «Algoritm murakkabligi bir xil» degani «tezligi bir xil» degani emas.
+  </p>
+
+  <div class="note note--warn">
+    <span class="note__title">Ko'p yadroli nozik joy</span>
+    <p>
+      Har bir yadroda o'z L1/L2 cache'i bor. Ikki yadro <em>bitta cache line</em> ichidagi (hatto turli!)
+      o'zgaruvchilarga yozsa, protsessor har safar liniyani yadrolar orasida ko'chirib turishi kerak bo'ladi —
+      bu <span class="term">false sharing</span>. Natijada «parallel qildim» degan kod bitta oqimdan sekinroq ishlashi mumkin.
+      Yechim: har bir oqimning hisoblagichini alohida cache line'ga ajratish (padding).
+    </p>
+  </div>
+
+  <h2 id="os-qatlami">Operatsion tizim: bitta mashinani ko'pchilikka bo'lib berish</h2>
+
+  <p>
+    Yuqoridagi apparat bitta ish oqimini biladi xolos. «Bir vaqtda 500 ta foydalanuvchiga xizmat qilish»
+    degan tushuncha apparatda yo'q — uni <strong>operatsion tizim</strong> yaratadi. OS asosan uchta illuziyani sotadi:
+  </p>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Illuziya</th><th>Haqiqat</th><th>Narxi</th></tr></thead>
+    <tbody>
+      <tr><td>Cheksiz ko'p protsessor</td><td>Bir nechta yadro navbat bilan bo'lishiladi</td><td>context switch: ~1–5 µs + cache isishi</td></tr>
+      <tr><td>Cheksiz uzluksiz xotira</td><td>Jismoniy sahifalar + sahifa jadvali</td><td>TLB miss, page fault, swap</td></tr>
+      <tr><td>Fayl/soket — oddiy obyekt</td><td>Drayver, bufer, DMA, uzilishlar</td><td>syscall: ~0.1–1 µs</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Process va thread</h3>
+  <p>
+    <strong>Process</strong> — o'z xotira maydoniga ega izolyatsiya birligi. <strong>Thread</strong> — shu maydon ichidagi
+    bajarilish oqimi: o'z steki va registrlari bor, lekin heap umumiy. Shuning uchun thread'lar orasida
+    ma'lumot almashish arzon (bir xil ko'rsatkich), lekin xavfli (bir vaqtda yozish = race condition).
+  </p>
+
+  <h3>Context switch — ko'rinmas soliq</h3>
+  <p>
+    Yadro bitta thread'ni to'xtatib, boshqasini ishga tushirganda registrlar saqlanadi, sahifa jadvali
+    almashtirilishi mumkin, planlovchi ishlaydi. To'g'ridan-to'g'ri narxi ~1–5 µs, lekin asosiy zarar
+    <em>ko'rinmas</em>: yangi thread cache'ni o'zinikiga almashtiradi, eski thread qayta ishga tushganda
+    cache'i sovib qolgan bo'ladi. Shuning uchun 10 000 ta thread yaratish ishni tezlashtirmaydi —
+    mashina foydali ish o'rniga thread almashtirish bilan band bo'lib qoladi (<span class="term">thrashing</span>).
+  </p>
+
+  <h3>Virtual xotira va page fault</h3>
+  <p>
+    Dasturingiz ko'rgan har bir manzil — soxta (virtual). MMU uni sahifa jadvali orqali jismoniy manzilga
+    aylantiradi; tez-tez ishlatiladigan tarjimalar <span class="term">TLB</span> da saqlanadi.
+    Agar sahifa hali jismoniy xotirada bo'lmasa — <span class="term">page fault</span>:
+    yadro sahifani diskdan olib keladi. Shuning uchun <code>malloc</code> tez, lekin ajratilgan xotiraga
+    <em>birinchi marta tegish</em> sekin bo'lishi mumkin.
+  </p>
+
+  <h3>Syscall, uzilish (interrupt) va DMA</h3>
+  <p>
+    Dastur diskdan o'qishni o'zi qila olmaydi — u yadroga murojaat qiladi (<code>read()</code>),
+    protsessor <em>user mode</em> dan <em>kernel mode</em> ga o'tadi. Yadro qurilmaga buyruq beradi va thread'ni uxlatadi.
+    Qurilma ishni tugatgach <strong>uzilish</strong> (interrupt) yuboradi; ma'lumot esa protsessorni band qilmasdan,
+    <span class="term">DMA</span> orqali to'g'ridan-to'g'ri RAM'ga yoziladi. Shundan keyin thread uyg'otiladi.
+  </p>
+
+  <div class="note note--ok">
+    <span class="note__title">Shu yerdan async I/O tug'iladi</span>
+    <p>
+      Thread kutib turgan paytda protsessor bo'sh. Agar har bir so'rovga bitta thread ajratsak,
+      mingta bir vaqtdagi so'rov = mingta uxlab yotgan thread = ko'p xotira va context switch.
+      <code>epoll</code>/<code>io_uring</code> asosidagi event loop esa bitta thread bilan minglab
+      soketni kuzatadi: «kim tayyor bo'lsa, o'shani ishlayman». Node.js, nginx, Go runtime —
+      hammasi shu g'oyaning turli ko'rinishlari.
+    </p>
+  </div>
+
+  <h2 id="sorov-yoli">Real misol: bitta HTTP so'rovning to'liq yo'li</h2>
+
+  <p>Endi hamma qism birlashadi. Foydalanuvchi <code>GET /profil/42</code> yubordi. Serverda nima bo'ladi:</p>
+
+  <figure class="figure">
+    <svg viewBox="0 0 700 330" width="100%" role="img" aria-label="HTTP so'rovning server ichidagi yo'li">
+      <text class="svg-label svg-label--strong" x="30" y="22">NIC</text>
+      <text class="svg-label svg-label--strong" x="190" y="22">Yadro (kernel)</text>
+      <text class="svg-label svg-label--strong" x="390" y="22">Ilova thread'i</text>
+      <text class="svg-label svg-label--strong" x="570" y="22">DB / disk</text>
+      <line x1="55" y1="32" x2="55" y2="310" stroke="#1f2a37"/>
+      <line x1="230" y1="32" x2="230" y2="310" stroke="#1f2a37"/>
+      <line x1="430" y1="32" x2="430" y2="310" stroke="#1f2a37"/>
+      <line x1="600" y1="32" x2="600" y2="310" stroke="#1f2a37"/>
+
+      <path class="svg-arrow" d="M55 55 H 225" marker-end="url(#a12)"/>
+      <text class="svg-label" x="70" y="48">paket keldi → DMA + interrupt</text>
+
+      <path class="svg-arrow" d="M230 95 H 425" marker-end="url(#a12)"/>
+      <text class="svg-label" x="245" y="88">TCP yig'iladi → soket buferi → epoll uyg'otadi</text>
+
+      <path class="svg-arrow" d="M430 135 H 595" marker-end="url(#a12)"/>
+      <text class="svg-label" x="445" y="128">parse · routing · SQL so'rov (syscall)</text>
+
+      <path class="svg-arrow" d="M600 190 H 435" marker-end="url(#a12)"/>
+      <text class="svg-label" x="445" y="183">natija qatorlari (~0.5–5 ms kutish)</text>
+
+      <path class="svg-arrow" d="M430 230 H 235" marker-end="url(#a12)"/>
+      <text class="svg-label" x="245" y="223">JSON serializatsiya → write() → soket</text>
+
+      <path class="svg-arrow" d="M230 270 H 60" marker-end="url(#a12)"/>
+      <text class="svg-label" x="70" y="263">TCP segmentlari → NIC → tarmoq</text>
+
+      <text class="svg-label svg-label--accent" x="70" y="300">Jami ~3 ms: shundan CPU ~0.3 ms, qolgani — KUTISH</text>
+
+      <defs>
+        <marker id="a12" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+          <path d="M0,0 L7,3.5 L0,7 z" fill="#2a4d7a"/>
+        </marker>
+      </defs>
+    </svg>
+    <figcaption>2-sxema. So'rovning hayot sikli. Eng muhim xulosa pastdagi qatorda.</figcaption>
+  </figure>
+
+  <p>Bosqichma-bosqich, raqamlar bilan:</p>
+
+  <ol>
+    <li><strong>NIC paketni qabul qiladi</strong> va DMA orqali RAM'ga yozadi, so'ng uzilish yuboradi. CPU deyarli band emas.</li>
+    <li><strong>Yadro TCP stekini bajaradi</strong>: tekshirish, tartibga solish, ACK. Ma'lumot soket buferiga tushadi.</li>
+    <li><strong>Ilova uyg'onadi</strong> (<code>epoll_wait</code> qaytadi). Bu yerda context switch bor — ~1–5 µs.</li>
+    <li><strong>Baytlar user-space'ga ko'chiriladi</strong> (<code>read()</code>), HTTP parse qilinadi. Endi CPU va cache ishlaydi.</li>
+    <li><strong>DB'ga so'rov</strong> — yana soket, yana kutish. Bu odatda <em>eng uzun</em> qism.</li>
+    <li><strong>Javob shakllantiriladi</strong>: JSON serializatsiya — bu sof CPU ishi, ko'pincha e'tibordan chetda qoladigan xarajat.</li>
+    <li><strong>Javob yoziladi</strong> va TCP orqali qaytadi.</li>
+  </ol>
+
+  <div class="note">
+    <span class="note__title">Asosiy xulosa</span>
+    <p>
+      Tipik veb-so'rovda protsessor vaqtning <strong>10% dan kamini</strong> ishlaydi. Qolgani — kutish.
+      Shuning uchun «serverni tezlashtirish» ko'pincha «tezroq CPU olish» emas, balki
+      <em>kutishni kamaytirish yoki kutish paytida boshqa ish qilish</em> demakdir.
+      Shu bitta jumla connection pool, async I/O, batching va cache'ning mavjudlik sababini tushuntiradi.
+    </p>
+  </div>
+
+  <h2 id="nega-muhim">Nega tizim dizayneri buni bilishi shart</h2>
+
+  <h3>Abstraksiyalar oqadi</h3>
+  <p>
+    ORM sizga «obyekt» ko'rsatadi, lekin ostida tarmoq so'rovi turadi. <code>list.append()</code> amortizatsiya qilingan O(1),
+    lekin ba'zan butun massivni ko'chiradi. Dastur sekinlashganda siz abstraksiya ostiga tusha olishingiz kerak —
+    aks holda «sehr» oldida ojiz qolasiz.
+  </p>
+
+  <h3>Konvert orqasida hisoblash (back-of-the-envelope)</h3>
+  <p>
+    Kompyuter raqamlarini bilsangiz, kod yozmasdan turib arxitektura qarorini baholay olasiz. Masalan:
+  </p>
+<p class="code-label">Savol: 1 KB lik 10 million yozuvni RAM'da saqlash mumkinmi?</p>
+<pre><code>10_000_000 × 1 KB = 10 GB  →  ha, bitta 32 GB serverga sig'adi.
+                              Demak DB'ga har safar bormaslik mumkin.
+
+Savol: sahifa uchun 50 ta ketma-ket DB so'rovi qancha vaqt oladi?
+50 × 0.5 ms = 25 ms (faqat tarmoq kutuvi)   →  bitta batch so'rov = 0.5 ms.
+Xuddi shu 50 ta so'rov boshqa DC'ga bo'lsa: 50 × 60 ms = 3 soniya  →  qabul qilib bo'lmaydi.</code></pre>
+
+  <h3>Chegara bilmasa — noto'g'ri joyni optimizatsiya qilasiz</h3>
+  <p>
+    Agar so'rov vaqtining 90% i diskni kutishga ketayotgan bo'lsa, algoritmni 2 barobar tezlashtirish
+    umumiy natijani atigi 5% yaxshilaydi. Qaysi resurs chegaraga yetganini bilish —
+    keyingi darsning to'liq mavzusi.
+  </p>
+
+  <h2 id="xatolar">Tez-tez qilinadigan xatolar</h2>
+
+  <ul class="mistakes">
+    <li>
+      <b>«CPU 100% bo'lmasa, hammasi joyida»</b>
+      CPU bo'sh turishi ko'pincha muammo <em>belgisi</em>: thread'lar disk, DB yoki qulfni kutyapti.
+      <span class="fix">CPU bilan birga kutish vaqtini ham o'lchang: run queue, iowait, p99 latency.</span>
+    </li>
+    <li>
+      <b>Ko'proq thread = ko'proq unumdorlik deb o'ylash</b>
+      Yadrolar soni chekli; ortiqcha thread faqat context switch va xotira sarfini oshiradi.
+      <span class="fix">CPU-bound ish uchun thread soni ≈ yadrolar soni; I/O-bound ish uchun async yoki o'lchangan pool.</span>
+    </li>
+    <li>
+      <b>Xotira joylashuvini e'tiborsiz qoldirish</b>
+      «Algoritm O(n) — demak tez» degan fikr cache miss'lar oldida ishlamaydi.
+      <span class="fix">Issiq yo'lda ketma-ket joylashgan tuzilmalarni (massiv, struct-of-arrays) afzal ko'ring.</span>
+    </li>
+    <li>
+      <b>Tarmoqni «tez» deb hisoblash</b>
+      Bitta DC ichidagi so'rov RAM'dan ~6000 marta sekin. Sikl ichidagi tarmoq chaqiruvi — eng keng tarqalgan sekinlik sababi.
+      <span class="fix">N+1 so'rovni batch'ga aylantiring; chaqiruvlar sonini o'lchab, byudjet belgilang.</span>
+    </li>
+    <li>
+      <b>Loglash va serializatsiyani «bepul» deb o'ylash</b>
+      JSON serializatsiya, kriptografiya va gzip — sof CPU ishi, ba'zan biznes-mantiqdan qimmatroq.
+      <span class="fix">Profiler bilan issiq nuqtani aniqlang; taxmin qilmang.</span>
+    </li>
+    <li>
+      <b>Mikrobenchmark natijasini haqiqat deb qabul qilish</b>
+      Sovuq cache, JIT, page fault, turbo-chastota — laboratoriya sharoitida boshqacha ko'rinadi.
+      <span class="fix">Realga yaqin yuklama bilan, isitilgandan keyin va p50 emas, p99 bo'yicha o'lchang.</span>
+    </li>
+  </ul>
+
+  <div class="summary">
+    <h2 id="xulosa">Xulosa</h2>
+    <ul>
+      <li>Kompyuter — holatni takt-takt o'zgartiradigan mashina. Tizim dizaynining barcha savollari
+          «holat qayerda» va «unga yetib borish qancha vaqt oladi» degan ikki savolga qaytadi.</li>
+      <li>Protsessor pipeline, out-of-order va spekulyatsiya bilan tezlashadi, lekin ko'pincha <strong>xotirani kutib turadi</strong>.</li>
+      <li>Xotira ierarxiyasi raqamlari (1 ns → 80 ns → 100 µs → 0.5 ms → 150 ms) — arxitektura qarorlarining asosi.</li>
+      <li>OS uchta illuziyani yaratadi: ko'p protsessor, cheksiz xotira, oddiy I/O. Har birining o'z narxi bor.</li>
+      <li>Tipik so'rovda CPU vaqtning 10% idan kamini ishlaydi — qolgani kutish. Optimizatsiya avvalo kutishga qaratiladi.</li>
+    </ul>
+  </div>
+
+  <div class="done-bar" data-done-bar></div>
+  <nav class="lesson-nav" data-lesson-nav></nav>
+
+</article>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap"><span>1.1 · Kompyuter anatomiyasi</span></div>
+</footer>
+
+<script src="assets/script.js"></script>
+</body>
+</html>

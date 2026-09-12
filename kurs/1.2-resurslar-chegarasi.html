@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="uz" data-dars="1.2">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>1.2 Resurslar chegarasi va muammolar</title>
+<meta name="description" content="CPU, xotira, disk va tarmoq chegaralari; navbat nazariyasi, Little qonuni, p99 va yuklama ortganda kechikishning portlashi.">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230d1117'/><rect x='8' y='8' width='16' height='16' rx='3' fill='none' stroke='%2358a6ff' stroke-width='2'/><rect x='13' y='13' width='6' height='6' fill='%2358a6ff'/></svg>">
+</head>
+<body>
+
+<header class="topbar" data-topbar></header>
+
+<main class="wrap">
+<article class="lesson">
+
+  <p class="eyebrow" data-eyebrow>Asosiy mavzu 1 · Kompyuter anatomiyasi</p>
+  <h1>1.2 Resurslar chegarasi va muammolar</h1>
+
+  <p class="lead">
+    Hech bir kompyuter «tez» yoki «sekin» emas — u <em>chegaralangan</em>. Har bir komponentning
+    aniq sig'imi bor va tizim shu sig'imga yaqinlashganda o'zini butunlay boshqacha tuta boshlaydi:
+    kechikish chiziqli emas, portlash tarzida oshadi. Bu darsda chegaralarni qanday topish,
+    o'lchash va ular bilan qanday yashash kerakligini o'rganamiz.
+  </p>
+
+  <nav class="toc" data-toc></nav>
+
+  <h2 id="turt-resurs">To'rtta asosiy resurs va yashirin beshinchisi</h2>
+
+  <p>
+    Amalda deyarli har qanday unumdorlik muammosi to'rtta resursdan biriga borib taqaladi.
+    Har biri uchun «sig'im nima bilan o'lchanadi» va «tugaganda qanday belgi beradi» ni bilish kerak:
+  </p>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Resurs</th><th>Sig'im nimada</th><th>Tugaganda belgisi</th><th>Tipik sabab</th></tr></thead>
+    <tbody>
+      <tr><td><strong>CPU</strong></td><td>yadro × chastota</td><td>run queue o'sadi, latency chiziqli emas oshadi</td><td>serializatsiya, kripto, gzip, regex, GC</td></tr>
+      <tr><td><strong>Xotira</strong></td><td>GB (va tezligi GB/s)</td><td>swap, GC pauzalari, OOM kill</td><td>cheksiz cache, leak, katta buferlar</td></tr>
+      <tr><td><strong>Disk I/O</strong></td><td>IOPS va MB/s</td><td>iowait, fsync sekinlashadi, navbat o'sadi</td><td>tasodifiy o'qish, log yozish, WAL</td></tr>
+      <tr><td><strong>Tarmoq</strong></td><td>Gbit/s, paket/s, RTT</td><td>retransmit, timeout, buferlar to'ladi</td><td>katta javoblar, chatty protokol</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>
+    Beshinchi guruh — <strong>sun'iy (logik) chegaralar</strong>. Ular apparat emas, dasturiy ta'minot tomonidan qo'yilgan
+    va amalda ko'pincha <em>birinchi bo'lib</em> tugaydi:
+  </p>
+
+  <ul>
+    <li><strong>File descriptor limiti</strong> (<code>ulimit -n</code>) — har bir soket va fayl bitta FD. 1024 ta standart limit yuk ostida darhol tugaydi.</li>
+    <li><strong>Connection pool</strong> — ilova ↔ DB orasidagi ulanishlar soni. Eng ko'p uchraydigan «ko'rinmas» bottleneck.</li>
+    <li><strong>Thread pool</strong> va navbat uzunligi.</li>
+    <li><strong>Ephemeral port</strong> (~28 000 ta) — bitta mashinadan bitta manzilga juda ko'p chiquvchi ulanish ochilsa tugaydi.</li>
+    <li><strong>Qulflar (lock) va tranzaksiyalar</strong> — bitta qulf butun tizimni bitta yadroga aylantirib qo'yishi mumkin.</li>
+    <li><strong>Bulutdagi kvotalar</strong> — API rate limit, IOPS credit (masalan gp2 burst), tarmoq PPS chegarasi.</li>
+  </ul>
+
+  <div class="note">
+    <span class="note__title">Qoida</span>
+    <p>
+      Har qanday vaqtda tizimda <strong>aniq bitta</strong> asosiy bottleneck bo'ladi. Uni topmasdan qilingan
+      optimizatsiya — taxmin. Bottleneck bartaraf etilsa, u yo'qolmaydi — shunchaki
+      <em>keyingi resursga ko'chadi</em>. Optimizatsiya — bu bottleneck'ni siz xohlagan joyga ko'chirish san'ati.
+    </p>
+  </div>
+
+  <h2 id="use-metodi">Chegarani qanday topish kerak: USE metodi</h2>
+
+  <p>
+    Brendan Gregg taklif qilgan <strong>USE</strong> metodi — har bir resurs uchun uchta narsani o'lchash:
+  </p>
+
+  <ul>
+    <li><strong>U — Utilization (band bo'lish):</strong> resurs vaqtning necha foizida ish bilan band edi.</li>
+    <li><strong>S — Saturation (to'yinganlik):</strong> navbatda qancha ish kutyapti. <em>Eng muhim, lekin eng kam o'lchanadigan ko'rsatkich.</em></li>
+    <li><strong>E — Errors (xatolar):</strong> rad etilgan so'rovlar, timeout, retransmit, OOM.</li>
+  </ul>
+
+  <p>
+    Nega faqat utilization yetarli emas? Chunki u 100% ga yetgach, o'sishdan to'xtaydi — lekin muammo
+    o'sishda davom etadi. 100% band CPU ham, 100% band va navbatida 5000 ta vazifa turgan CPU ham
+    grafikda bir xil ko'rinadi. Farqni faqat saturation ko'rsatadi.
+  </p>
+
+<p class="code-label">Linux'da amaliy o'lchash</p>
+<pre><code># CPU: utilization + saturation (run queue)
+vmstat 1        # 'r' ustuni = bajarishga tayyor thread'lar soni
+                # r > yadrolar soni bo'lsa — CPU to'yingan
+
+# Disk: navbat va kutish vaqti
+iostat -x 1     # %util, aqu-sz (o'rtacha navbat), r_await/w_await (ms)
+
+# Xotira: swap harakati bormi (si/so ustunlari)
+vmstat 1
+
+# Tarmoq: soket navbatlari to'lyaptimi
+ss -ti          # Recv-Q / Send-Q ustunlari nolga yaqin bo'lishi kerak
+netstat -s | grep -i retrans
+
+# File descriptor
+cat /proc/PID/limits ; ls /proc/PID/fd | wc -l</code></pre>
+
+  <h2 id="navbat-nazariyasi">Navbat nazariyasi: nega 80% da hammasi buziladi</h2>
+
+  <p>
+    Bu darsning eng muhim g'oyasi. Ko'pchilik serverni «idish» deb tasavvur qiladi: sig'imi 1000 RPS bo'lsa,
+    999 RPS da yaxshi ishlaydi, 1001 RPS da yiqiladi. Haqiqat butunlay boshqacha —
+    <strong>tizim sig'imga yetishidan ancha oldin yomonlasha boshlaydi.</strong>
+  </p>
+
+  <p>
+    Sabab: so'rovlar bir tekis kelmaydi, ular <em>tasodifiy</em> keladi. Ba'zan bir vaqtda 5 tasi keladi,
+    ba'zan hech biri kelmaydi. Bo'sh turgan vaqt «zaxiraga» yig'ilmaydi, lekin to'planib qolgan navbat yig'iladi.
+    Oddiy (M/M/1) modelda kutish vaqti quyidagicha:
+  </p>
+
+<pre><code>ρ (ro) = kelish tezligi / xizmat ko'rsatish sig'imi     — band bo'lish darajasi
+
+Tizimda o'tgan o'rtacha vaqt:   T = S / (1 − ρ)
+   bu yerda S — bitta so'rovga sarflangan sof xizmat vaqti
+
+ρ = 0.5  →  T = 2 × S       (ikki barobar sekin)
+ρ = 0.8  →  T = 5 × S
+ρ = 0.9  →  T = 10 × S
+ρ = 0.95 →  T = 20 × S
+ρ = 0.99 →  T = 100 × S</code></pre>
+
+  <figure class="figure">
+    <svg viewBox="0 0 700 330" width="100%" role="img" aria-label="Band bo'lish darajasi va kechikish orasidagi bog'liqlik grafigi">
+      <line x1="60" y1="290" x2="650" y2="290" stroke="#1f2a37" stroke-width="1.5"/>
+      <line x1="60" y1="30"  x2="60"  y2="290" stroke="#1f2a37" stroke-width="1.5"/>
+
+      <text class="svg-label" x="52" y="308">0%</text>
+      <text class="svg-label" x="340" y="308">50%</text>
+      <text class="svg-label" x="512" y="308">80%</text>
+      <text class="svg-label" x="570" y="308">90%</text>
+      <text class="svg-label" x="625" y="308">100%</text>
+      <text class="svg-label svg-label--strong" x="270" y="325">Resursning band bo'lish darajasi (ρ)</text>
+
+      <text class="svg-label svg-label--strong" x="12" y="24">Kechikish</text>
+
+      <line x1="524" y1="30" x2="524" y2="290" stroke="#f2c661" stroke-width="1" stroke-dasharray="4 4"/>
+      <text class="svg-label" x="318" y="48" fill="#f2c661">xavfsiz ish zonasi chegarasi →</text>
+
+      <polyline class="svg-arrow" stroke="#58a6ff" stroke-width="2.5"
+        points="60,280 200,274 350,267 466,251 524,230 553,208 582,166 599,112 611,40"/>
+
+      <circle cx="524" cy="230" r="4" fill="#f2c661"/>
+      <circle cx="582" cy="166" r="4" fill="#ff7b72"/>
+      <text class="svg-label" x="590" y="150" fill="#ff7b72">90% → 10× sekin</text>
+      <text class="svg-label" x="380" y="228" fill="#f2c661">80% → 5× sekin</text>
+      <text class="svg-label" x="120" y="262">50% → 2× sekin</text>
+    </svg>
+    <figcaption>3-sxema. Kechikish band bo'lish darajasiga chiziqli emas, giperbolik bog'langan.
+    Shuning uchun ishlab chiqarish tizimlari 60–70% dan yuqori band bo'lishga yo'l qo'ymaydi.</figcaption>
+  </figure>
+
+  <div class="note note--warn">
+    <span class="note__title">Amaliy natija</span>
+    <p>
+      «Serverlar atigi 40% band, pul isrof bo'lyapti» degan gap ko'pincha noto'g'ri.
+      O'sha 40% — bu <em>zaxira sig'im</em>: u trafik portlashini yutadi va p99 ni tekis ushlab turadi.
+      70% dan yuqori doimiy band bo'lish — bu tejamkorlik emas, kechiktirilgan avariya.
+    </p>
+  </div>
+
+  <h3>Little qonuni — eng foydali bitta formula</h3>
+
+  <p>Bu formula har qanday barqaror navbat uchun, hech qanday taxminsiz to'g'ri ishlaydi:</p>
+
+<pre><code>L = λ × W
+
+L — tizim ichida bir vaqtda turgan so'rovlar soni (concurrency)
+λ — so'rovlar kelish tezligi (RPS)
+W — bitta so'rovning tizimda o'tkazgan vaqti (latency)</code></pre>
+
+  <p>Undan darhol amaliy javoblar chiqadi:</p>
+
+<p class="code-label">Sig'imni hisoblash</p>
+<pre><code>// 1) Nechta worker kerak?
+λ = 2000 RPS,  W = 50 ms = 0.05 s
+L = 2000 × 0.05 = 100 ta bir vaqtdagi so'rov
+→ bloklovchi (thread-per-request) modelda kamida 100 thread kerak,
+  zaxira bilan ~130. 1000 thread ortiqcha, 20 thread esa navbat hosil qiladi.
+
+// 2) Pool kichkina bo'lsa nima bo'ladi?
+DB pool = 20 ulanish, bitta so'rov DB'da 10 ms turadi
+→ maksimal o'tkazuvchanlik = 20 / 0.010 = 2000 RPS. Bu QATTIQ chegara.
+  3000 RPS kelsa — 1000 tasi navbatda kutadi va latency o'sib ketadi.
+
+// 3) Latency oshsa nima bo'ladi?
+DB sekinlashib 10 ms → 50 ms bo'ldi (pool o'sha-o'sha 20)
+→ sig'im 2000 → 400 RPS ga tushdi. Hech narsa "buzilmagan",
+  lekin tizim 5 barobar kam yuk ko'taradi. Mana shu — kaskadli avariyaning boshlanishi.</code></pre>
+
+  <h2 id="oʻlchash">To'g'ri o'lchash: o'rtacha qiymat yolg'on gapiradi</h2>
+
+  <p>
+    «O'rtacha javob vaqti 50 ms» degan jumla deyarli hech narsa anglatmaydi. Agar 95 ta so'rov 10 ms da,
+    5 tasi 850 ms da bajarilsa, o'rtacha baribir ~52 ms chiqadi — lekin foydalanuvchilarning 5 foizi
+    dahshatli tajriba oldi. Shuning uchun <strong>persentil</strong>lar ishlatiladi:
+  </p>
+
+  <ul>
+    <li><strong>p50 (median)</strong> — tipik foydalanuvchi nimani ko'radi.</li>
+    <li><strong>p95 / p99</strong> — «yomon kun» qanday ko'rinadi. SLO odatda shu yerda belgilanadi.</li>
+    <li><strong>p99.9 / max</strong> — GC pauzasi, cache sovushi, disk fsync, chaqaloq muammolarning ko'zgusi.</li>
+  </ul>
+
+  <div class="note note--danger">
+    <span class="note__title">Dum kechikishining kuchayishi (tail latency amplification)</span>
+    <p>
+      Bitta sahifa 20 ta servisga so'rov yuborsa va har birining p99 = 100 ms bo'lsa,
+      hech bo'lmaganda bittasi sekin bo'lish ehtimoli 1 − 0.99<sup>20</sup> ≈ <strong>18%</strong>.
+      Ya'ni servislarning «p99 yaxshi» ko'rsatkichi sahifa darajasida
+      har beshinchi foydalanuvchining sekin javob olishiga aylanadi. Mikroservislarda
+      dum kechikish — asosiy dushman.
+    </p>
+  </div>
+
+  <h3>Yana bir tuzoq: koordinatsiyalangan e'tibordan chetda qolish</h3>
+  <p>
+    Ko'p yuklama testlari javob kelguncha yangi so'rov yubormaydi. Server qotib qolsa,
+    test ham to'xtab turadi va <em>eng yomon so'rovlarni umuman o'lchamaydi</em>
+    (<span class="term">coordinated omission</span>). Natijada grafik chiroyli, ishlab chiqarish esa yonadi.
+    To'g'ri yondashuv — belgilangan tezlikda (open-model) yuk berish va kechikishni
+    <em>so'rov kelishi kerak bo'lgan paytdan</em> boshlab sanash.
+  </p>
+
+  <h2 id="tipik-muammolar">Chegaraga urilganda yuzaga keladigan tipik muammolar</h2>
+
+  <h3>1. Pool tugashi va kaskadli avariya</h3>
+  <p>
+    DB biroz sekinlashadi → ulanishlar uzoqroq band bo'ladi → pool tugaydi → so'rovlar navbatda kutadi →
+    timeout → mijoz qayta urinadi → yuk yanada oshadi → DB yanada sekinlashadi. Bu
+    <strong>o'zini-o'zi kuchaytiruvchi halqa</strong>: sabab yo'qolsa ham tizim o'z-o'zidan tiklanmaydi.
+  </p>
+
+  <h3>2. Retry bo'roni (retry storm)</h3>
+  <p>
+    Sodda «3 marta qayta urin» siyosati avariya paytida yukni 3 barobar oshiradi — ya'ni eng yomon paytda
+    eng katta zarba beradi. To'g'ri yechim: <em>eksponensial backoff + jitter</em>, retry byudjeti
+    (masalan umumiy trafikning 10% idan oshmasin) va circuit breaker.
+  </p>
+
+<p class="code-label">Backoff + jitter (to'lqinlar bir vaqtda qaytmasligi uchun)</p>
+<pre><code>// Yomon: hamma mijoz aynan 1s, 2s, 4s da bir vaqtda qaytadi — yana zarba
+delay = base * 2 ** attempt
+
+// Yaxshi: tasodifiylik to'lqinni yoyadi (full jitter)
+delay = random(0, min(maxDelay, base * 2 ** attempt))
+
+// Va albatta byudjet:
+if (retriesLast10s / requestsLast10s &gt; 0.1) skipRetry();</code></pre>
+
+  <h3>3. Cheksiz navbatlar</h3>
+  <p>
+    Cheksiz navbat xotirani yeydi va — muhimi — <strong>kechikishni yashiradi</strong>. Navbatda 30 soniya turgan
+    so'rov bajarilganda mijoz allaqachon ketgan bo'ladi: server o'lik ish qilyapti.
+    Navbat har doim chegaralangan bo'lishi va to'lganda <em>tez rad etishi</em> kerak.
+  </p>
+
+<p class="code-label">Chegaralangan navbat + fast fail (Java misoli)</p>
+<pre><code>ExecutorService pool = new ThreadPoolExecutor(
+    16, 16, 0L, TimeUnit.MILLISECONDS,
+    new ArrayBlockingQueue&lt;&gt;(200),              // CHEGARALANGAN navbat
+    new ThreadPoolExecutor.AbortPolicy());      // to'lsa — darhol xato
+
+// Navbatga qo'yishdan oldin "bu so'rov hali kerakmi?" deb tekshirish:
+if (System.nanoTime() &gt; request.deadlineNanos) {
+    metrics.dropExpired();      // mijoz ketgan — bajarishning ma'nosi yo'q
+    return;
+}</code></pre>
+
+  <h3>4. Yukni tashlash (load shedding) va backpressure</h3>
+  <p>
+    Sig'imdan ortiq yuk kelganda ikki yo'l bor: hammaga yomon xizmat qilish yoki bir qismini
+    darhol rad etib, qolganiga yaxshi xizmat qilish. Ikkinchisi har doim to'g'ri.
+    <strong>Backpressure</strong> — «sekinroq yubor» signalini manbagacha yetkazish
+    (TCP oynasi, gRPC flow control, Kafka consumer lag — hammasi shu g'oya).
+  </p>
+
+  <h3>5. Bir-birini bo'g'uvchi ishlar (bulkhead)</h3>
+  <p>
+    Agar hisobot generatsiyasi va login bitta thread pool'dan foydalansa, og'ir hisobot
+    login'ni ham o'ldiradi. Kemadagi suv o'tkazmas bo'linmalar kabi, resurslarni
+    ajratib qo'yish kerak: alohida pool, alohida navbat, ba'zan alohida mashina (bu — keyingi darsning mavzusi).
+  </p>
+
+  <h3>6. Xotiraga xos muammolar</h3>
+  <ul>
+    <li><strong>OOM killer</strong>: Linux xotira tugaganda eng «semiz» processni o'ldiradi. Konteynerda
+        <code>memory limit</code> dan oshgan process darhol tugatiladi — sekinlashish emas, o'lim.</li>
+    <li><strong>GC pauzalari</strong>: heap qanchalik katta bo'lsa, ba'zi to'plash fazalari shunchalik uzoq.
+        Bu p99 ni buzadigan eng keng tarqalgan sabab.</li>
+    <li><strong>Swap</strong>: RAM tugaganda OS diskka ko'chiradi. 80 ns → 100 µs, ya'ni mingdan ortiq marta sekin.
+        Serverda swap ko'pincha o'chiriladi: sekin o'lishdan tez o'lish yaxshiroq.</li>
+  </ul>
+
+  <h2 id="byudjet">Chegaralar bilan ishlash: byudjet yondashuvi</h2>
+
+  <p>
+    Professional yondashuv — chegarani kutib o'tirmay, <strong>oldindan byudjet belgilash</strong>.
+    Har bir so'rov uchun vaqt va resurs byudjeti tuziladi va u bosqichlar orasida taqsimlanadi:
+  </p>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Bosqich</th><th>Byudjet</th><th>Chegaradan oshsa</th></tr></thead>
+    <tbody>
+      <tr><td>Auth tekshiruvi (cache)</td><td class="num">5 ms</td><td>cache'dan eski qiymat</td></tr>
+      <tr><td>Asosiy DB so'rovi</td><td class="num">50 ms</td><td>timeout → 503</td></tr>
+      <tr><td>Tavsiyalar servisi</td><td class="num">30 ms</td><td>bo'sh ro'yxat bilan davom etish</td></tr>
+      <tr><td>Render + serializatsiya</td><td class="num">15 ms</td><td>—</td></tr>
+      <tr><td><strong>Jami (p99 maqsad)</strong></td><td class="num">100 ms</td><td>SLO buzildi → alert</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>Yodda tutiladigan asosiy qoidalar:</p>
+  <ul>
+    <li><strong>Har bir tashqi chaqiruvda timeout bo'lishi shart.</strong> Timeoutsiz chaqiruv — cheksiz kutish imkoniyati.</li>
+    <li><strong>Deadline'ni uzatib boring.</strong> Agar mijozga 100 ms qolgan bo'lsa, ichki servisga 500 ms timeout berish ma'nosiz.</li>
+    <li><strong>Muhim bo'lmagan qismlar ixtiyoriy bo'lsin</strong> (graceful degradation): tavsiyalar yo'q bo'lsa ham sahifa ochilsin.</li>
+    <li><strong>Chegaraning 100% iga emas, 60–70% iga mo'ljallang.</strong> Qolgani — portlashlar uchun zaxira.</li>
+  </ul>
+
+  <h2 id="xatolar-2">Tez-tez qilinadigan xatolar</h2>
+
+  <ul class="mistakes">
+    <li>
+      <b>Faqat utilization'ni kuzatish, saturation'ni unutish</b>
+      «CPU 100%» — bu holat; «run queue 40» — bu muammoning kattaligi.
+      <span class="fix">Har bir resurs uchun navbat uzunligi va kutish vaqtini ham dashboard'ga qo'ying.</span>
+    </li>
+    <li>
+      <b>O'rtacha qiymat bo'yicha qaror qabul qilish</b>
+      O'rtacha kechikish avariyani ko'rsatmaydi — u faqat p99 da ko'rinadi.
+      <span class="fix">SLO'ni p99 (yoki p99.9) bo'yicha belgilang va alertni shunga bog'lang.</span>
+    </li>
+    <li>
+      <b>Cheksiz navbat va cheksiz pool</b>
+      «Navbat bo'lsa hech narsa yo'qolmaydi» degan fikr xotira va kechikishni portlatadi.
+      <span class="fix">Navbatni chegaralang, to'lganda tez rad eting, so'rovning deadline'ini tekshiring.</span>
+    </li>
+    <li>
+      <b>Timeoutsiz yoki backoffsiz retry</b>
+      Avariya paytida yukni ko'paytirib, tiklanishning oldini oladi.
+      <span class="fix">Backoff + jitter, retry byudjeti, circuit breaker — uchtasi birga ishlatiladi.</span>
+    </li>
+    <li>
+      <b>Bottleneck aniqlanmasdan optimizatsiya qilish</b>
+      Diskni kutayotgan tizimda algoritmni tezlashtirish natija bermaydi (Amdahl qonuni).
+      <span class="fix">Avval o'lchang: qaysi resurs to'yingan? Keyin o'sha yerni tuzating.</span>
+    </li>
+    <li>
+      <b>Serverlarni 90% band qilib «tejash»</b>
+      Bo'sh sig'im — isrof emas, balki portlashlarni yutuvchi zaxira.
+      <span class="fix">Doimiy band bo'lishni 60–70% da ushlang, avtoskaling chegarasini shunga qo'ying.</span>
+    </li>
+    <li>
+      <b>Faqat apparat chegaralarini hisobga olish</b>
+      FD limiti, ephemeral port, connection pool, API kvota — ko'pincha CPU'dan oldin tugaydi.
+      <span class="fix">Yuklama testida shu «sun'iy» chegaralarni ham aniq tekshirib chiqing.</span>
+    </li>
+  </ul>
+
+  <div class="summary">
+    <h2 id="xulosa-2">Xulosa</h2>
+    <ul>
+      <li>Resurslar: CPU, xotira, disk, tarmoq + sun'iy chegaralar (FD, pool, port, kvota). Har birining sig'imi va «tugadi» belgisi bor.</li>
+      <li>USE metodi: Utilization, Saturation, Errors. Saturation eng muhim va eng ko'p unutiladigan ko'rsatkich.</li>
+      <li>Kechikish band bo'lish darajasiga giperbolik bog'liq: T = S/(1−ρ). 90% da tizim 10 barobar sekin ishlaydi.</li>
+      <li>Little qonuni (L = λ×W) pool hajmi, worker soni va sig'imni bir necha soniyada hisoblab beradi.</li>
+      <li>O'rtacha emas, p99 bilan ishlang; mikroservislarda dum kechikishi kuchayib ketadi.</li>
+      <li>Chegara bilan yashash usullari: timeout, deadline, chegaralangan navbat, backpressure, load shedding, bulkhead, backoff+jitter.</li>
+    </ul>
+  </div>
+
+  <div class="done-bar" data-done-bar></div>
+  <nav class="lesson-nav" data-lesson-nav></nav>
+
+</article>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap"><span>1.2 · Kompyuter anatomiyasi</span></div>
+</footer>
+
+<script src="assets/script.js"></script>
+</body>
+</html>

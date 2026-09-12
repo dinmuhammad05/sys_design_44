@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tizim dizayni — chuqur kurs</title>
+<meta name="description" content="Kompyuter anatomiyasidan boshlab katta tizimlar qanday ishlashini o'rganadigan chuqur kurs. O'zbek tilida.">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230d1117'/><rect x='8' y='8' width='16' height='16' rx='3' fill='none' stroke='%2358a6ff' stroke-width='2'/><rect x='13' y='13' width='6' height='6' fill='%2358a6ff'/></svg>">
+</head>
+<body data-page="index">
+
+<header class="topbar">
+  <div class="topbar__inner">
+    <a class="topbar__back" href="index.html">▣ kurs</a>
+    <div class="topbar__title">Tizim dizayni · <b>chuqur kurs</b></div>
+    <div class="topbar__nav">
+      <button class="btn" data-reset type="button">Progressni tozalash</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap wrap--wide">
+
+  <section class="hero">
+    <p class="eyebrow">Tizim dizayni · amaliy kurs</p>
+    <h1>Katta tizimlarni pastdan yuqoriga qarab tushunish</h1>
+    <p>
+      Ko'p kurslar darhol «microservice», «sharding», «Kafka» deb boshlaydi. Biz teskari yo'ldan boramiz:
+      avval <strong>bitta kompyuter</strong> qanday ishlashini, uning chegaralari qayerda ekanini va
+      real tizimda mashinalar qanday rollarni bajarishini chuqur o'rganamiz. Shundan keyingina
+      taqsimlangan tizimlar mantiqiy ko'rinadi — chunki ularning har bir yechimi aynan shu chegaralardan tug'ilgan.
+    </p>
+
+    <div class="stats" data-stats></div>
+
+    <div class="done-bar">
+      <div class="progress" data-progress></div>
+      <a class="btn btn--primary" data-davom hidden href="#">Boshlash</a>
+    </div>
+  </section>
+
+  <div data-kurs-royxat>
+    <div class="empty-state">Darslar yuklanmoqda…</div>
+  </div>
+
+  <section class="module" style="margin-top:60px">
+    <div class="module__head">
+      <span class="module__num">?</span>
+      <h2 class="module__title">Kurs qanday kengayadi</h2>
+    </div>
+    <p class="module__desc">
+      Bu sahifa <code>assets/lessons.json</code> faylini o'qib chiziladi. Yangi dars qo'shish uchun
+      shu faylga bitta yozuv qo'shiladi va <code>X.Y-nomi.html</code> fayli yaratiladi —
+      <code>index.html</code> kodiga tegish shart emas. Yangi asosiy mavzu (masalan 2)
+      avtomatik ravishda alohida guruh bo'lib paydo bo'ladi.
+    </p>
+<pre><code>{
+  "asosiyId": 2,
+  "asosiyNomi": "Tarmoq va protokollar",
+  "asosiyTavsif": "Mashinalar bir-biri bilan qanday gaplashadi.",
+  "ichkiId": "2.1",
+  "ichkiNomi": "TCP nima uchun shunday ishlaydi",
+  "ichkiTavsif": "Qo'l siqish, oyna, qayta uzatish va ular kechikishga ta'siri.",
+  "fayl": "2.1-tcp-asoslari.html",
+  "tartib": 1,
+  "davomiyligi": "25 daqiqa"
+}</code></pre>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap wrap--wide">
+    <span>Progress brauzeringizning localStorage'ida saqlanadi — server yo'q, hisob yo'q.</span>
+  </div>
+</footer>
+
+<script src="assets/script.js"></script>
+</body>
+</html>

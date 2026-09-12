@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="uz" data-dars="1.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>1.3 Tizimdagi real rollar</title>
+<meta name="description" content="Web server, ma'lumotlar bazasi, cache, navbat, proxy, worker, obyekt xotirasi — har bir rolning resurs profili, holati va masshtablash modeli.">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230d1117'/><rect x='8' y='8' width='16' height='16' rx='3' fill='none' stroke='%2358a6ff' stroke-width='2'/><rect x='13' y='13' width='6' height='6' fill='%2358a6ff'/></svg>">
+</head>
+<body>
+
+<header class="topbar" data-topbar></header>
+
+<main class="wrap">
+<article class="lesson">
+
+  <p class="eyebrow" data-eyebrow>Asosiy mavzu 1 · Kompyuter anatomiyasi</p>
+  <h1>1.3 Tizimdagi real rollar</h1>
+
+  <p class="lead">
+    Jismonan barcha serverlar bir xil: protsessor, xotira, disk, tarmoq karta. Lekin real tizimda
+    ular <strong>turlicha rol</strong> o'ynaydi — biri so'rovni qabul qiladi, biri ma'lumotni saqlaydi,
+    biri natijani eslab qoladi, biri og'ir ishni fonda bajaradi. Rol resursning qaysi biri birinchi
+    tugashini, mashinani qanday sozlashni va uni qanday masshtablashni belgilaydi.
+  </p>
+
+  <nav class="toc" data-toc></nav>
+
+  <h2 id="nega-ajratamiz">Nega hamma ishni bitta mashinaga bermaymiz</h2>
+
+  <p>
+    Boshida hamma narsa bitta serverda turadi va bu <em>to'g'ri</em> qaror: oddiy, arzon, tez.
+    Ajratish uchun uchta jiddiy sabab bor va ularning hech biri «moda» emas:
+  </p>
+
+  <h3>1. Resurs profillari bir-biriga zid</h3>
+  <p>
+    Ma'lumotlar bazasi katta va barqaror RAM (cache uchun) hamda tez disk talab qiladi.
+    Ilova serveri esa CPU va ko'p ulanish talab qiladi, RAM'ni to'satdan ko'p olishi mumkin.
+    Bitta mashinada ular <strong>bir-birining cache'ini va xotirasini o'g'irlaydi</strong>
+    (<span class="term">noisy neighbour</span>): ilovaning bitta og'ir so'rovi DB'ning issiq cache'ini
+    siqib chiqaradi va butun tizim sekinlashadi.
+  </p>
+
+  <h3>2. Xatolik zonasi (failure domain)</h3>
+  <p>
+    Bir mashinada hamma narsa turgan bo'lsa, ilovadagi xotira oqishi OOM killer'ni chaqiradi va u
+    bazani o'ldirishi mumkin. Rollarni ajratish — «bitta narsa buzilsa, hammasi buzilmasin» degani.
+  </p>
+
+  <h3>3. Masshtablash modellari har xil</h3>
+  <p>
+    Ilova serverini ko'paytirish oson — u holat saqlamaydi, yana bitta nusxa qo'shasiz.
+    Ma'lumotlar bazasini «yana bitta qo'shish» bilan masshtablab bo'lmaydi — unda holat bor,
+    uni bo'lish (sharding) yoki nusxalash (replication) kerak, bu esa butunlay boshqa muammo.
+    Shuning uchun ular ajratiladi: <strong>oson masshtablanadigan qismni qiyin qismidan ozod qilish</strong>.
+  </p>
+
+  <figure class="figure">
+    <svg viewBox="0 0 700 330" width="100%" role="img" aria-label="Tipik veb-tizim arxitekturasi va rollari">
+      <rect class="svg-box" x="12" y="150" width="80" height="46" rx="6"/>
+      <text class="svg-label svg-label--strong" x="31" y="170">Mijoz</text>
+      <text class="svg-label" x="23" y="186">brauzer/app</text>
+
+      <rect class="svg-box" x="110" y="150" width="80" height="46" rx="6"/>
+      <text class="svg-label svg-label--strong" x="135" y="170">CDN</text>
+      <text class="svg-label" x="122" y="186">edge cache</text>
+
+      <rect class="svg-box svg-box--accent" x="208" y="150" width="112" height="46" rx="6"/>
+      <text class="svg-label svg-label--strong" x="218" y="170">Load balancer</text>
+      <text class="svg-label" x="218" y="186">TLS · routing</text>
+
+      <rect class="svg-box svg-box--accent" x="340" y="95" width="105" height="42" rx="6"/>
+      <text class="svg-label svg-label--strong" x="352" y="113">App server 1</text>
+      <text class="svg-label" x="352" y="128">stateless</text>
+      <rect class="svg-box svg-box--accent" x="340" y="147" width="105" height="42" rx="6"/>
+      <text class="svg-label svg-label--strong" x="352" y="165">App server 2</text>
+      <text class="svg-label" x="352" y="180">stateless</text>
+      <rect class="svg-box svg-box--accent" x="340" y="199" width="105" height="42" rx="6"/>
+      <text class="svg-label svg-label--strong" x="352" y="217">App server N</text>
+      <text class="svg-label" x="352" y="232">stateless</text>
+
+      <rect class="svg-box" x="470" y="38" width="100" height="44" rx="6"/>
+      <text class="svg-label svg-label--strong" x="487" y="57">Cache</text>
+      <text class="svg-label" x="480" y="73">RAM · Redis</text>
+
+      <rect class="svg-box" x="470" y="110" width="100" height="44" rx="6"/>
+      <text class="svg-label svg-label--strong" x="483" y="129">DB primary</text>
+      <text class="svg-label" x="480" y="145">yozish · WAL</text>
+
+      <rect class="svg-box" x="470" y="168" width="100" height="40" rx="6"/>
+      <text class="svg-label svg-label--strong" x="483" y="185">DB replica</text>
+      <text class="svg-label" x="480" y="200">o'qish</text>
+
+      <rect class="svg-box" x="470" y="240" width="100" height="44" rx="6"/>
+      <text class="svg-label svg-label--strong" x="487" y="259">Queue</text>
+      <text class="svg-label" x="480" y="275">bufer · broker</text>
+
+      <rect class="svg-box" x="605" y="240" width="85" height="44" rx="6"/>
+      <text class="svg-label svg-label--strong" x="620" y="259">Worker</text>
+      <text class="svg-label" x="617" y="275">fon ishlari</text>
+
+      <rect class="svg-box" x="605" y="110" width="85" height="44" rx="6"/>
+      <text class="svg-label svg-label--strong" x="617" y="129">Obyekt</text>
+      <text class="svg-label" x="617" y="145">S3 · MinIO</text>
+
+      <path class="svg-arrow" d="M92 173 H 104" marker-end="url(#a13)"/>
+      <path class="svg-arrow" d="M190 173 H 202" marker-end="url(#a13)"/>
+      <path class="svg-arrow" d="M320 173 H 330"/>
+      <path class="svg-arrow" d="M330 116 V 220"/>
+      <path class="svg-arrow" d="M330 116 H 336" marker-end="url(#a13)"/>
+      <path class="svg-arrow" d="M330 168 H 336" marker-end="url(#a13)"/>
+      <path class="svg-arrow" d="M330 220 H 336" marker-end="url(#a13)"/>
+
+      <path class="svg-arrow" d="M445 116 H 457 V 60 H 466" marker-end="url(#a13)"/>
+      <path class="svg-arrow" d="M445 168 H 457 V 132 H 466" marker-end="url(#a13)"/>
+      <path class="svg-arrow" d="M445 220 H 457 V 262 H 466" marker-end="url(#a13)"/>
+
+      <path class="svg-arrow" d="M520 154 V 164" marker-end="url(#a13)"/>
+      <path class="svg-arrow" d="M570 262 H 601" marker-end="url(#a13)"/>
+      <path class="svg-arrow" d="M647 240 V 158" marker-end="url(#a13)"/>
+      <path class="svg-arrow" d="M647 284 V 300 H 588 V 132 H 574" marker-end="url(#a13)" stroke-dasharray="4 3"/>
+
+      <text class="svg-label svg-label--accent" x="12" y="320">Chapdan o'ngga: holatsiz (oson masshtablanadi) → holatli (qiyin masshtablanadi)</text>
+
+      <defs>
+        <marker id="a13" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+          <path d="M0,0 L7,3.5 L0,7 z" fill="#2a4d7a"/>
+        </marker>
+      </defs>
+    </svg>
+    <figcaption>4-sxema. Tipik veb-tizim. Deyarli barcha arxitekturalar shu skeletning variantlari.</figcaption>
+  </figure>
+
+  <h2 id="stateless-stateful">Eng muhim ajratish: holatli va holatsiz</h2>
+
+  <p>
+    Rollarni yodlashdan oldin bitta savolni tushunish kerak: <strong>mashina o'chsa, nima yo'qoladi?</strong>
+    Javob ikkiga bo'linadi va bu butun arxitekturani belgilaydi.
+  </p>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th></th><th>Holatsiz (stateless)</th><th>Holatli (stateful)</th></tr></thead>
+    <tbody>
+      <tr><td>Misollar</td><td>app server, proxy, worker, CDN edge</td><td>DB, cache, queue, obyekt xotirasi</td></tr>
+      <tr><td>O'chsa</td><td>hech narsa yo'qolmaydi, so'rov boshqasiga ketadi</td><td>ma'lumot yoki xabar yo'qolishi mumkin</td></tr>
+      <tr><td>Masshtablash</td><td>nusxa qo'shish (horizontal, oson)</td><td>replikatsiya/sharding (murakkab)</td></tr>
+      <tr><td>Deploy</td><td>eski nusxani o'chirib, yangisini qo'yish</td><td>ehtiyotkorlik, migratsiya, failover</td></tr>
+      <tr><td>Asosiy resurs</td><td>CPU, tarmoq</td><td>RAM, disk (IOPS, fsync)</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <span class="note__title">Amaliy qoida</span>
+    <p>
+      Holatni tizimning iloji boricha <strong>kam nuqtasida</strong> to'plang. «Stateless» ilova aslida
+      holatni yo'q qilmaydi — u holatni o'zidan chiqarib, DB va cache'ga surib qo'yadi.
+      Shuning uchun session'ni server xotirasida saqlash — masshtablashni buzadigan klassik xato:
+      foydalanuvchi boshqa serverga tushsa, tizimdan chiqib ketadi.
+    </p>
+  </div>
+
+  <h2 id="rollar">Rollar birma-bir</h2>
+
+  <h3>1. Load balancer / reverse proxy (nginx, HAProxy, Envoy, ALB)</h3>
+  <p>
+    <strong>Vazifasi:</strong> kiruvchi ulanishlarni qabul qilish, TLS'ni yechish, so'rovni sog'lom app serverga
+    yo'naltirish, sekin mijozlarni bufer bilan ajratish, statik fayllarni berish.
+  </p>
+  <p>
+    <strong>Resurs profili:</strong> tarmoq va CPU (asosan TLS handshake). Diskka deyarli tegmaydi.
+    Bottleneck ko'pincha — <em>ulanishlar soni</em> (FD limiti) va TLS uchun CPU.
+  </p>
+  <p>
+    <strong>Nega kerak:</strong> u <em>bufer</em> vazifasini bajaradi. Mobil internetdagi sekin mijoz javobni
+    30 soniya yuklab olsa, app server thread'ini 30 soniya band qilmaydi — proxy javobni o'ziga olib,
+    app'ni darhol bo'shatadi. Bu bitta xususiyatning o'zi sig'imni bir necha barobar oshiradi.
+  </p>
+
+  <h3>2. Ilova serveri (app/web server)</h3>
+  <p>
+    <strong>Vazifasi:</strong> biznes-mantiq. So'rovni tushunish, DB va cache'ga murojaat qilish, javobni yig'ish.
+  </p>
+  <p>
+    <strong>Resurs profili:</strong> CPU (serializatsiya, shablon, kripto) + juda ko'p kutish.
+    1.1-darsdan eslang: bu mashina vaqtining ko'p qismida <em>kutadi</em>, shuning uchun uning sig'imi
+    ko'pincha CPU bilan emas, <strong>konkurentlik modeli</strong> bilan chegaralanadi
+    (thread soni, pool hajmi, event loop).
+  </p>
+  <p>
+    <strong>Masshtablash:</strong> gorizontal, cheksizga yaqin — toki ular murojaat qiladigan DB ko'tara olsa.
+    Shuning uchun app serverlarni ko'paytirish ko'pincha muammoni hal qilmaydi, faqat DB'ga zarbani kuchaytiradi.
+  </p>
+
+<p class="code-label">Sozlash — 1.2-darsdagi Little qonuni bilan</p>
+<pre><code># nginx: har bir yadroga bitta worker, ko'p ulanish
+worker_processes  auto;              # = yadrolar soni
+worker_connections 4096;             # FD limiti bilan mos bo'lishi shart
+
+# Gunicorn (bloklovchi model):
+#   workers ≈ 2 × yadro + 1     (CPU uchun)
+#   lekin har biri DB poolidan ulanish oladi — DB chegarasini hisoblang:
+#   8 instance × 16 worker = 128 ulanish. Postgres max_connections = 100 → AVARIYA.</code></pre>
+
+  <h3>3. Cache serveri (Redis, Memcached)</h3>
+  <p>
+    <strong>Vazifasi:</strong> qimmat hisoblangan yoki DB'dan olingan natijani RAM'da saqlab, qayta so'ralganda
+    mikrosoniyalarda qaytarish. 80 ns (RAM) vs 5 ms (murakkab SQL) — farq 60 000 barobar.
+  </p>
+  <p>
+    <strong>Resurs profili:</strong> RAM (asosiy chegara) va tarmoq. CPU kam ishlatiladi —
+    Redis bitta thread'da ishlaydi, shuning uchun bitta sekin buyruq (<code>KEYS *</code>, katta <code>LRANGE</code>)
+    butun serverni bloklaydi.
+  </p>
+  <p>
+    <strong>Muhim xususiyat:</strong> cache — <em>haqiqat manbai emas</em>. U istalgan paytda bo'sh bo'lishi mumkin
+    va tizim shunda ham to'g'ri ishlashi shart (sekinroq, lekin to'g'ri). Agar cache o'chganda tizim yiqilsa,
+    demak sizda cache emas, <strong>ishonchsiz ma'lumotlar bazasi</strong> bor.
+  </p>
+
+  <div class="note note--warn">
+    <span class="note__title">Cache bilan bog'liq uchta klassik falokat</span>
+    <p>
+      <strong>Stampede (hujum):</strong> mashhur kalit muddati tugadi → mingta so'rov bir vaqtda DB'ga bordi.
+      Yechim: qulf bilan faqat bittasiga yangilashga ruxsat berish yoki eski qiymatni qaytarib,
+      fonda yangilash (<em>stale-while-revalidate</em>).<br>
+      <strong>Bir vaqtda tugash:</strong> hamma kalitga bir xil TTL berilgan → hammasi bir soniyada tugadi.
+      Yechim: TTL'ga tasodifiy qo'shimcha (jitter).<br>
+      <strong>Sovuq start:</strong> cache o'chirilib qayta yoqildi → DB butun yukni birdan oldi va yiqildi.
+    </p>
+  </div>
+
+  <h3>4. Ma'lumotlar bazasi (OLTP: PostgreSQL, MySQL)</h3>
+  <p>
+    <strong>Vazifasi:</strong> haqiqat manbai. Ma'lumotni ishonchli saqlash, tranzaksiya va konsistentlikni ta'minlash.
+  </p>
+  <p>
+    <strong>Resurs profili:</strong> hammasi. RAM — issiq ma'lumotni ushlab turish uchun (eng muhimi),
+    disk — <code>fsync</code> va tasodifiy o'qish uchun, CPU — murakkab so'rovlar va qulflar uchun.
+    Odatda <em>eng qimmat va eng qiyin masshtablanadigan</em> komponent.
+  </p>
+  <p>
+    <strong>Nega qiyin:</strong> DB har bir tasdiqlangan yozuvni diskka fizik yozishi kerak (WAL + fsync),
+    aks holda elektr o'chganda ma'lumot yo'qoladi. fsync — sekin va uni «optimizatsiya qilib» bo'lmaydi,
+    faqat guruhlash (group commit) mumkin. Shuning uchun yozish tezligi har doim o'qishdan qimmat.
+  </p>
+
+<p class="code-label">DB uchun eng muhim sozlamalar (PostgreSQL misolida)</p>
+<pre><code>shared_buffers      = 8GB      # RAM'ning ~25% i — DB'ning o'z cache'i
+effective_cache_size = 24GB    # OS cache'i haqida optimizatorga maslahat
+max_connections     = 200      # KO'P emas! Har bir ulanish = process + RAM
+                               # 200 dan ko'p kerak bo'lsa → PgBouncer (pooler)
+work_mem            = 32MB     # har bir sort/hash uchun; × ulanish soni = xavf
+wal_compression     = on
+
+-- Masshtablash yo'llari (tartib bilan):
+-- 1) so'rovni optimallashtirish + indeks   (eng arzon, ko'pincha yetarli)
+-- 2) o'qishni replica'ga bo'lish           (lekin: replikatsiya kechikishi bor)
+-- 3) vertikal (kattaroq mashina)           (oddiy, chegarasi bor)
+-- 4) sharding                              (eng qimmat, eng oxirgi chora)</code></pre>
+
+  <h3>5. Navbat / broker (RabbitMQ, Kafka, SQS)</h3>
+  <p>
+    <strong>Vazifasi:</strong> ishni <em>vaqt bo'yicha ajratish</em>. So'rov kelganda uni darhol bajarish
+    shart emas — xabarni navbatga qo'yib, mijozga javob berish va ishni fonda bajarish mumkin.
+  </p>
+  <p>
+    <strong>Nima beradi:</strong>
+  </p>
+  <ul>
+    <li><strong>Yuk tekislash</strong> (buffering): kirish 10 000 RPS, ishlov berish 1000 RPS bo'lsa ham tizim yiqilmaydi — navbat farqni yutadi.</li>
+    <li><strong>Ajratish (decoupling)</strong>: buyurtma qabul qilish uchun email servisining tirikligi shart emas.</li>
+    <li><strong>Qayta urinish va ishonchlilik</strong>: worker yiqilsa, xabar yo'qolmaydi, qayta beriladi.</li>
+  </ul>
+  <p>
+    <strong>Resurs profili:</strong> disk (Kafka — ketma-ket yozish, bu diskning eng tez rejimi) va tarmoq.
+    <strong>Asosiy kuzatuv ko'rsatkichi</strong> — <em>lag</em>: navbatda qancha bajarilmagan xabar bor va u o'syaptimi.
+    Lag doimiy o'ssa — worker'lar yetishmayapti, bu 1.2-darsdagi ρ &gt; 1 holati.
+  </p>
+
+  <h3>6. Worker (fon ishlari, batch)</h3>
+  <p>
+    <strong>Vazifasi:</strong> navbatdan vazifa olib bajarish: rasm o'lchamini o'zgartirish, hisobot,
+    email, video kodlash, ma'lumot import qilish.
+  </p>
+  <p>
+    <strong>Resurs profili:</strong> rolga qarab keskin farq qiladi — video kodlash uchun CPU,
+    hisobot uchun RAM va disk. Aynan shuning uchun worker'lar app serverlardan ajratiladi:
+    ularning profili mutlaqo boshqa va ular <em>foydalanuvchi kutib turmaydigan</em> ish qiladi,
+    demak ularni sekinlashtirish ham, uzib qo'yish ham mumkin.
+  </p>
+  <p>
+    <strong>Muhim talab:</strong> <span class="term">idempotentlik</span>. Xabar kamida bir marta yetkaziladi,
+    ba'zan ikki marta. Ikki marta bajarilganda natija bir xil bo'lishi kerak
+    (masalan, pulni ikki marta yechib yubormaslik uchun operatsiya ID bo'yicha tekshirish).
+  </p>
+
+  <h3>7. Obyekt xotirasi va fayl serveri (S3, MinIO)</h3>
+  <p>
+    <strong>Vazifasi:</strong> katta binary fayllar (rasm, video, backup) uchun arzon va cheksiz saqlash.
+    <strong>Nega alohida:</strong> bunday fayllarni DB'ga (BLOB) solish DB cache'ini buzadi,
+    backup'ni og'irlashtiradi va replikatsiyani sekinlashtiradi. Fayllar uchun kechikish emas,
+    <em>o'tkazuvchanlik</em> va narx muhim.
+  </p>
+
+  <h3>8. CDN / edge</h3>
+  <p>
+    <strong>Vazifasi:</strong> kontentni foydalanuvchiga fizik yaqinlashtirish. 1.1-darsdagi jadvalni eslang:
+    kontinentlararo RTT ~150 ms va uni hech qanday kod yaxshilay olmaydi — yorug'lik tezligi cheklangan.
+    Yagona yechim — masofani qisqartirish.
+  </p>
+
+  <h3>9. Koordinatsiya servisi (etcd, ZooKeeper, Consul)</h3>
+  <p>
+    <strong>Vazifasi:</strong> «kim yetakchi», «qaysi nusxalar tirik», «konfiguratsiya qanday» kabi
+    <em>kichik, lekin juda muhim</em> holatni konsensus bilan saqlash. Ma'lumot hajmi kichik,
+    lekin ishonchlilik talabi eng yuqori — bu odatda butun klasterning «miyasi».
+  </p>
+
+  <h3>10. Analitika / OLAP (ClickHouse, BigQuery)</h3>
+  <p>
+    <strong>Nega alohida:</strong> OLTP bazasi «bitta foydalanuvchini top» uchun, OLAP esa
+    «bir milliard qatordan o'rtachani hisobla» uchun mo'ljallangan. Ular ustunli (columnar) saqlash va
+    boshqa disk profiliga ega. Analitik so'rovni ishlab chiqarish bazasida bajarish —
+    ishlab chiqarishni o'ldirishning eng oson yo'li.
+  </p>
+
+  <h2 id="rol-jadval">Rollarning qiyosiy jadvali</h2>
+
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Rol</th><th>Asosiy resurs</th><th>Holat</th><th>Masshtablash</th><th>Birinchi kuzatiladigan ko'rsatkich</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Load balancer</td><td>tarmoq, CPU (TLS)</td><td>yo'q</td><td>gorizontal, DNS/anycast</td><td>ulanishlar soni, 5xx</td></tr>
+      <tr><td>App server</td><td>CPU + kutish</td><td>yo'q</td><td>gorizontal (oson)</td><td>p99 latency, pool band bo'lishi</td></tr>
+      <tr><td>Cache</td><td>RAM</td><td>vaqtinchalik</td><td>sharding (kalit bo'yicha)</td><td>hit ratio, eviction</td></tr>
+      <tr><td>DB (OLTP)</td><td>RAM + disk IOPS</td><td>bor (asosiy)</td><td>replica → sharding (qiyin)</td><td>sekin so'rovlar, lock kutish, replikatsiya lag</td></tr>
+      <tr><td>Queue</td><td>disk (ketma-ket), tarmoq</td><td>bor</td><td>partition</td><td>consumer lag</td></tr>
+      <tr><td>Worker</td><td>vazifaga bog'liq</td><td>yo'q</td><td>gorizontal</td><td>bajarish vaqti, xatolar/DLQ</td></tr>
+      <tr><td>Obyekt xotirasi</td><td>disk hajmi, o'tkazuvchanlik</td><td>bor</td><td>tayyor xizmat</td><td>o'tkazuvchanlik, narx</td></tr>
+      <tr><td>CDN</td><td>tarmoq</td><td>nusxa</td><td>geografik</td><td>cache hit ratio</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2 id="qachon-ajratish">Amalda: qachon ajratish kerak</h2>
+
+  <p>
+    Rollarni ajratish bepul emas — har bir tarmoq chegarasi yangi kechikish, yangi xatolik turi va
+    yangi operatsion yuk qo'shadi. Shuning uchun ketma-ketlik odatda quyidagicha bo'ladi:
+  </p>
+
+  <ol>
+    <li><strong>Bosqich 0 (bitta mashina):</strong> app + DB + cache birga. 90% loyihalar uchun uzoq vaqt yetarli.</li>
+    <li><strong>Bosqich 1:</strong> DB'ni alohida mashinaga chiqarish. Sabab: resurs konflikti va backup'ni yengillashtirish.</li>
+    <li><strong>Bosqich 2:</strong> app serverlarni ko'paytirish + oldiga load balancer. Shart: sessiyani serverdan chiqarish.</li>
+    <li><strong>Bosqich 3:</strong> cache va queue + worker'lar. Sabab: og'ir ishni so'rov yo'lidan olib tashlash.</li>
+    <li><strong>Bosqich 4:</strong> o'qish uchun replica, analitika uchun alohida baza, CDN.</li>
+    <li><strong>Bosqich 5:</strong> sharding, geografik taqsimlash. Bu yerga yetganingizda muammolaringiz butunlay boshqacha bo'ladi.</li>
+  </ol>
+
+  <div class="note note--ok">
+    <span class="note__title">Har bir qadam uchun savol</span>
+    <p>
+      «Qaysi resurs to'ydi va bu ajratish aynan o'sha resursni bo'shatadimi?» Agar javob aniq bo'lmasa —
+      ajratish erta. Arxitektura murakkabligini <em>o'lchangan</em> chegara asosida oshiring, taxmin asosida emas.
+    </p>
+  </div>
+
+  <h2 id="xatolar-3">Tez-tez qilinadigan xatolar</h2>
+
+  <ul class="mistakes">
+    <li>
+      <b>App serverni DB bilan bitta mashinada qoldirib, keyin «DB sekin» deb aybdor izlash</b>
+      Ular bir-birining RAM va disk cache'ini talashadi.
+      <span class="fix">Avval profillarni ajrating, keyin o'lchang.</span>
+    </li>
+    <li>
+      <b>Sessiyani app server xotirasida saqlash</b>
+      Gorizontal masshtablash imkonsiz bo'lib qoladi, deploy har safar foydalanuvchilarni chiqarib yuboradi.
+      <span class="fix">Sessiyani Redis'ga yoki imzolangan token (JWT/cookie) ga ko'chiring.</span>
+    </li>
+    <li>
+      <b>Cache'ni haqiqat manbai sifatida ishlatish</b>
+      Cache o'chganda ma'lumot yo'qoladi yoki tizim yiqiladi.
+      <span class="fix">Cache har doim qayta tiklanadigan bo'lsin; u o'chganda tizim sekinlashsin, lekin ishlasin.</span>
+    </li>
+    <li>
+      <b>Navbatni ma'lumotlar bazasi sifatida ishlatish</b>
+      Queue — oqim, tarix emas: unda qidirish, tuzatish va qayta o'qish qiyin.
+      <span class="fix">Haqiqatni DB'da saqlang, navbatda faqat «bajarilishi kerak bo'lgan ish» turisin.</span>
+    </li>
+    <li>
+      <b>Bazani (holatli komponentni) app kabi masshtablashga urinish</b>
+      «Yana 10 ta DB qo'shamiz» ishlamaydi — replikatsiya kechikishi, konsistentlik va sharding muammolari paydo bo'ladi.
+      <span class="fix">Avval so'rov va indeks, keyin o'qish replica'lari, sharding esa eng oxirida.</span>
+    </li>
+    <li>
+      <b>App serverlarni DB chegarasini hisobga olmay ko'paytirish</b>
+      Har bir yangi instance DB'ga yangi ulanishlar olib keladi va bazani tezroq o'ldiradi.
+      <span class="fix">Connection pooler (PgBouncer) qo'ying va umumiy ulanishlar sonini hisoblang.</span>
+    </li>
+    <li>
+      <b>Og'ir ishni so'rov ichida bajarish</b>
+      PDF generatsiya, email yuborish, rasm qayta ishlash foydalanuvchini kuttiradi va thread'larni band qiladi.
+      <span class="fix">Navbatga qo'ying, worker bajarsin, foydalanuvchiga «qabul qilindi» deb javob bering.</span>
+    </li>
+    <li>
+      <b>Analitik so'rovlarni ishlab chiqarish bazasida bajarish</b>
+      Bitta og'ir <code>GROUP BY</code> butun cache'ni siqib chiqaradi va OLTP yuklamasini o'ldiradi.
+      <span class="fix">Replica yoki alohida OLAP tizimiga ko'chiring.</span>
+    </li>
+  </ul>
+
+  <div class="summary">
+    <h2 id="xulosa-3">Xulosa</h2>
+    <ul>
+      <li>Serverlar bir xil apparatga ega, lekin roli ularning resurs profilini, sozlamasini va masshtablash usulini belgilaydi.</li>
+      <li>Ajratishning uchta sababi: resurs konflikti, xatolik zonasini cheklash, mustaqil masshtablash.</li>
+      <li>Eng muhim chiziq — holatli va holatsiz o'rtasida. Holatsizni ko'paytirish oson, holatlini — qiyin va qimmat.</li>
+      <li>Asosiy rollar: LB/proxy, app server, cache, DB, queue, worker, obyekt xotirasi, CDN, koordinatsiya, OLAP.</li>
+      <li>Rollarni o'lchangan bottleneck asosida, bosqichma-bosqich ajrating — oldindan emas.</li>
+      <li>Cache haqiqat manbai emas; navbat ma'lumotlar bazasi emas; app serverni ko'paytirish DB chegarasini ko'chirmaydi.</li>
+    </ul>
+  </div>
+
+  <div class="note" style="margin-top:28px">
+    <span class="note__title">Asosiy mavzu 1 yakunlandi</span>
+    <p>
+      Endi sizda poydevor bor: bitta kompyuter qanday ishlaydi (1.1), uning chegaralari qayerda (1.2)
+      va real tizimda mashinalar qanday rollarni bajaradi (1.3). Keyingi asosiy mavzular
+      shu poydevor ustiga quriladi — ular kurs to'ldirilgan sari bosh sahifada avtomatik paydo bo'ladi.
+    </p>
+  </div>
+
+  <div class="done-bar" data-done-bar></div>
+  <nav class="lesson-nav" data-lesson-nav></nav>
+
+</article>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap"><span>1.3 · Kompyuter anatomiyasi</span></div>
+</footer>
+
+<script src="assets/script.js"></script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+{
+  "kurs": {
+    "nomi": "Tizim dizayni: chuqur kurs",
+    "tavsif": "Katta tizimlar qanday ishlashini eng pastki qatlamdan — kompyuterning o'zidan — boshlab o'rganamiz."
+  },
+  "darslar": [
+    {
+      "asosiyId": 1,
+      "asosiyNomi": "Kompyuter anatomiyasi",
+      "asosiyTavsif": "Har qanday katta tizim oxir-oqibat bitta kompyuterda bajariladi. Shu mashinani ichidan tushunamiz.",
+      "ichkiId": "1.1",
+      "ichkiNomi": "Kompyuter — tizim yuragi",
+      "ichkiTavsif": "Universal holat mashinasi, von Neumann sikli, xotira ierarxiyasi va OS qatlamlari — bitta so'rov qanday bajariladi.",
+      "fayl": "1.1-tizim-yuragi.html",
+      "tartib": 1,
+      "davomiyligi": "25 daqiqa"
+    },
+    {
+      "asosiyId": 1,
+      "asosiyNomi": "Kompyuter anatomiyasi",
+      "asosiyTavsif": "Har qanday katta tizim oxir-oqibat bitta kompyuterda bajariladi. Shu mashinani ichidan tushunamiz.",
+      "ichkiId": "1.2",
+      "ichkiNomi": "Resurslar chegarasi va muammolar",
+      "ichkiTavsif": "CPU, xotira, disk, tarmoq chegaralari; navbat nazariyasi, Little qonuni va yuklama ortganda kechikish nega portlaydi.",
+      "fayl": "1.2-resurslar-chegarasi.html",
+      "tartib": 2,
+      "davomiyligi": "30 daqiqa"
+    },
+    {
+      "asosiyId": 1,
+      "asosiyNomi": "Kompyuter anatomiyasi",
+      "asosiyTavsif": "Har qanday katta tizim oxir-oqibat bitta kompyuterda bajariladi. Shu mashinani ichidan tushunamiz.",
+      "ichkiId": "1.3",
+      "ichkiNomi": "Tizimdagi real rollar",
+      "ichkiTavsif": "Web server, ma'lumotlar bazasi, cache, queue, proxy, worker — har bir rolning resurs profili va masshtablash modeli.",
+      "fayl": "1.3-tizimdagi-real-rollar.html",
+      "tartib": 3,
+      "davomiyligi": "30 daqiqa"
+    }
+  ]
+}
