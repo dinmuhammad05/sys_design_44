@@ -343,6 +343,179 @@
     });
   }
 
+
+  /* ======================================================================
+     PWA: ilova sifatida o'rnatish va oflayn rejim
+     ====================================================================== */
+
+  var deferredPrompt = null;   // beforeinstallprompt hodisasi
+  var installBtn = null;
+  var offlineNoticeShown = false;
+
+  function isStandalone() {
+    try {
+      return window.matchMedia("(display-mode: standalone)").matches ||
+             window.matchMedia("(display-mode: minimal-ui)").matches ||
+             window.navigator.standalone === true;
+    } catch (e) { return false; }
+  }
+
+  function isIos() {
+    return /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+           // iPadOS 13+ o'zini Mac deb ko'rsatadi
+           (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  }
+
+  /* Yuqori paneldagi tugmalar qutisi (dars sahifalarida JS yaratadi) */
+  function topbarNav() {
+    var nav = document.querySelector(".topbar__nav");
+    if (nav) return nav;
+    var inner = document.querySelector(".topbar__inner");
+    if (!inner) return null;
+    nav = el("div", "topbar__nav");
+    inner.appendChild(nav);
+    return nav;
+  }
+
+  function toast(message, actionText, onAction) {
+    var box = el("div", "toast");
+    box.appendChild(el("span", null, message));
+    if (actionText) {
+      var b = el("button", "btn btn--primary", actionText);
+      b.addEventListener("click", function () {
+        box.remove();
+        if (onAction) onAction();
+      });
+      box.appendChild(b);
+    }
+    var close = el("button", "toast__close", "✕");
+    close.setAttribute("aria-label", "Yopish");
+    close.addEventListener("click", function () { box.remove(); });
+    box.appendChild(close);
+    document.body.appendChild(box);
+    return box;
+  }
+
+  function showIosHint() {
+    if (document.querySelector(".ios-hint")) return;
+    var box = el("div", "ios-hint");
+    box.innerHTML =
+      '<b>iPhone / iPad'+"'"+'da o'+"'"+'rnatish</b>' +
+      '<ol><li>Pastdagi <b>Ulashish</b> tugmasini bosing (kvadrat va yuqoriga strelka).</li>' +
+      '<li><b>«Bosh ekranga qo'+"'"+'shish»</b> ni tanlang.</li>' +
+      '<li>Kurs alohida ilova kabi ochiladi va oflaynda ham ishlaydi.</li></ol>';
+    var close = el("button", "toast__close", "✕");
+    close.setAttribute("aria-label", "Yopish");
+    close.addEventListener("click", function () { box.remove(); });
+    box.appendChild(close);
+    document.body.appendChild(box);
+  }
+
+  /* O'rnatish tugmasini yuqori panelga qo'yish */
+  function placeInstallButton() {
+    if (isStandalone()) return;                  // allaqachon ilova sifatida ochilgan
+    if (!deferredPrompt && !isIos()) return;     // brauzer o'rnatishni taklif qilmayapti
+    var nav = topbarNav();
+    if (!nav) return;
+    if (installBtn && nav.contains(installBtn)) return;
+
+    installBtn = el("button", "btn btn--install");
+    installBtn.type = "button";
+    installBtn.title = "Kursni qurilmaga ilova sifatida o'rnatish (oflaynda ham ishlaydi)";
+    installBtn.innerHTML = "<span aria-hidden=\"true\">⤓</span> <span class=\"btn__text\">Ilova sifatida o'rnatish</span>";
+
+    installBtn.addEventListener("click", triggerInstall);
+    nav.appendChild(installBtn);
+  }
+
+  /* O'rnatishni boshlash — ham yuqori paneldagi tugma, ham kartochka shuni chaqiradi */
+  function triggerInstall() {
+    if (!deferredPrompt) {          // iOS yoki taklif hali tayyor emas
+      showIosHint();
+      return;
+    }
+    var p = deferredPrompt;
+    deferredPrompt = null;
+    p.prompt();
+    p.userChoice.then(function (choice) {
+      if (choice && choice.outcome === "accepted") {
+        hideInstallUI();
+      } else {
+        deferredPrompt = p;         // rad etilsa — keyinroq qayta bosishi mumkin
+      }
+    }).catch(function () {});
+  }
+
+  function hideInstallUI() {
+    if (installBtn) installBtn.remove();
+    var card = document.querySelector("[data-install-card]");
+    if (card) card.hidden = true;
+  }
+
+  /* Bosh sahifadagi katta kartochka */
+  function syncInstallCard() {
+    var card = document.querySelector("[data-install-card]");
+    if (!card) return;
+    if (isStandalone() || (!deferredPrompt && !isIos())) { card.hidden = true; return; }
+    card.hidden = false;
+    var btn = card.querySelector("[data-install-card-btn]");
+    if (btn && !btn.dataset.bound) {
+      btn.dataset.bound = "1";
+      btn.addEventListener("click", triggerInstall);
+    }
+  }
+
+  window.addEventListener("beforeinstallprompt", function (e) {
+    e.preventDefault();          // brauzerning o'z bannerini to'xtatib, o'z tugmamizni ko'rsatamiz
+    deferredPrompt = e;
+    placeInstallButton();
+    syncInstallCard();
+  });
+
+  window.addEventListener("appinstalled", function () {
+    deferredPrompt = null;
+    hideInstallUI();
+    toast("Ilova o'rnatildi — endi kursni oflaynda ham o'qishingiz mumkin.");
+  });
+
+  /* Service worker: oflayn kesh + yangilanish haqida xabar */
+  function registerServiceWorker() {
+    if (!("serviceWorker" in navigator)) return;
+    if (location.protocol === "file:") return;   // file:// da SW ishlamaydi
+
+    navigator.serviceWorker.register("sw.js", { scope: "./" }).then(function (reg) {
+      reg.addEventListener("updatefound", function () {
+        var sw = reg.installing;
+        if (!sw) return;
+        sw.addEventListener("statechange", function () {
+          // Yangi versiya tayyor, lekin eskisi hali ishlab turibdi
+          if (sw.state === "installed" && navigator.serviceWorker.controller) {
+            toast("Kursning yangi versiyasi tayyor.", "Yangilash", function () {
+              sw.postMessage({ type: "SKIP_WAITING" });
+            });
+          }
+        });
+      });
+    }).catch(function (err) {
+      console.warn("[kurs] service worker:", err && err.message);
+    });
+
+    var reloading = false;
+    navigator.serviceWorker.addEventListener("controllerchange", function () {
+      if (reloading) return;
+      reloading = true;
+      location.reload();
+    });
+  }
+
+  function watchConnection() {
+    window.addEventListener("offline", function () {
+      if (offlineNoticeShown) return;
+      offlineNoticeShown = true;
+      toast("Oflayn rejim — saqlangan darslar ochilaveradi.");
+    });
+  }
+
   /* ======================================================================
      Ishga tushirish
      ====================================================================== */
@@ -351,9 +524,15 @@
     var darsId = document.documentElement.getAttribute("data-dars");
     var isIndex = document.body.getAttribute("data-page") === "index";
 
+    registerServiceWorker();
+    watchConnection();
+    placeInstallButton();
+    syncInstallCard();
+
     loadLessons().then(function (data) {
       if (isIndex) renderIndex(data);
       if (darsId) renderLesson(data, darsId);
+      placeInstallButton();   // dars sahifasida topbar JS bilan chizilgani uchun
     }).catch(function (err) {
       // fetch ishlamasa (masalan file:// orqali ochilganda) — sahifa baribir o'qilishi kerak
       console.warn("[kurs]", err.message);
@@ -371,6 +550,7 @@
         inner.appendChild(back);
         bar.appendChild(inner);
       }
+      placeInstallButton();
     });
   }
 

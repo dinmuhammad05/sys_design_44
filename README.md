@@ -11,10 +11,13 @@ kurs/
 ├── 1.1-tizim-yuragi.html
 ├── 1.2-resurslar-chegarasi.html
 ├── 1.3-tizimdagi-real-rollar.html
+├── manifest.webmanifest    # PWA: ilova nomi, ikonkalari, rangi
+├── sw.js                   # service worker: oflayn kesh
 └── assets/
     ├── style.css           # barcha sahifalar uchun umumiy CSS
-    ├── script.js           # navigatsiya, progress-tracking, active-state
-    └── lessons.json        # darslarning markazlashgan ro'yxati
+    ├── script.js           # navigatsiya, progress, o'rnatish tugmasi, SW ro'yxatdan o'tkazish
+    ├── lessons.json        # darslarning markazlashgan ro'yxati
+    └── icon-*.png          # ilova ikonkalari (192, 512, maskable, apple-touch)
 ```
 
 Ildizdagi `index.html` — `kurs/` ga yo'naltiruvchi sahifa. `.nojekyll` fayli GitHub Pages'ning
@@ -82,6 +85,34 @@ python3 -m http.server 8000
 
 Settings → Pages → Source: `Deploy from a branch`, branch: asosiy branch, papka: `/ (root)`.
 Sayt `https://<user>.github.io/<repo>/` manzilida ochiladi.
+
+## Ilova sifatida o'rnatish (PWA)
+
+Sayt Progressive Web App sifatida ishlaydi: uni telefon yoki kompyuterga o'rnatish mumkin,
+brauzer paneli ko'rinmaydi va **internetsiz ham** ochiladi.
+
+- **Android / Chrome / Edge / Windows / macOS** — bosh sahifadagi «Ilova sifatida o'rnating»
+  kartochkasi yoki yuqori paneldagi ⤓ tugmasi (brauzer `beforeinstallprompt` hodisasini
+  bergan paytda ko'rinadi).
+- **iPhone / iPad (Safari)** — Ulashish → «Bosh ekranga qo'shish». Sahifada shu haqda
+  ko'rsatma chiqadi (iOS `beforeinstallprompt` ni qo'llab-quvvatlamaydi).
+
+`sw.js` o'rnatilayotganda `lessons.json` ni o'qib, **barcha dars sahifalarini** oldindan keshlaydi —
+yangi dars qo'shilganda bu faylni tahrirlash shart emas.
+
+Kesh strategiyasi:
+
+| Nima | Strategiya | Sababi |
+|---|---|---|
+| HTML sahifalar, `lessons.json` | avval tarmoq, keyin kesh | onlaynda kontent har doim yangi, oflaynda saqlangani ochiladi |
+| CSS, JS, ikonkalar | avval kesh, fonda yangilanadi | tez yuklanish |
+
+Kontentni jiddiy o'zgartirgandan so'ng `sw.js` ichidagi `VERSION` qiymatini oshiring
+(`kurs-v1` → `kurs-v2`) — eski kesh tozalanadi. Yangi versiya tayyor bo'lganda foydalanuvchiga
+«Yangilash» tugmasi bilan xabar chiqadi.
+
+> Eslatma: service worker faqat HTTPS yoki `localhost` da ishlaydi — `file://` orqali ochilganda
+> sayt oddiy statik sahifa sifatida ishlaydi.
 
 ## Progress
 
