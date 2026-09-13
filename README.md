@@ -8,9 +8,13 @@ GitHub Pages'ga to'g'ridan-to'g'ri joylashtiriladi.
 ```
 kurs/
 ├── index.html              # lessons.json'ni o'qib, kartochka va progressni dinamik chizadi
-├── 1.1-tizim-yuragi.html
+├── 1.1-tizim-yuragi.html            # 1. Kompyuter anatomiyasi
 ├── 1.2-resurslar-chegarasi.html
 ├── 1.3-tizimdagi-real-rollar.html
+├── 2.1-os-asosiy-tushunchalar.html  # 2. Operatsion tizim va abstraktsiya
+├── 2.2-protsess-va-thread.html
+├── 2.3-virtual-xotira-va-izolyatsiya.html
+├── 2.4-tizim-chaqiruvi.html
 ├── manifest.webmanifest    # PWA: ilova nomi, ikonkalari, rangi
 ├── sw.js                   # service worker: oflayn kesh
 └── assets/

@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="uz" data-dars="2.4">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2.4 Tizim chaqiruvi (System Calls)</title>
+<meta name="description" content="Syscall mexanikasi va narxi, libc wrapper va vDSO, buferlash, zero-copy, epoll va io_uring, strace bilan tahlil, seccomp orqali cheklash.">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230d1117'/><rect x='8' y='8' width='16' height='16' rx='3' fill='none' stroke='%2358a6ff' stroke-width='2'/><rect x='13' y='13' width='6' height='6' fill='%2358a6ff'/></svg>">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0d1117">
+<meta name="color-scheme" content="dark">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tizim kursi">
+<meta name="mobile-web-app-capable" content="yes">
+</head>
+<body>
+
+<header class="topbar" data-topbar></header>
+
+<main class="wrap">
+<article class="lesson">
+
+  <p class="eyebrow" data-eyebrow>Asosiy mavzu 2 · Operatsion tizim va abstraktsiya</p>
+  <h1>2.4 Tizim chaqiruvi (System Calls)</h1>
+
+  <p class="lead">
+    2.1-darsda ikki dunyo bor edi: imtiyozsiz user space va imtiyozli kernel space.
+    Ular orasidagi <strong>yagona qonuniy eshik</strong> — tizim chaqiruvi. Faylni o'qish,
+    paket yuborish, protsess yaratish, xotira so'rash — hammasi shu eshikdan o'tadi.
+    Demak bu eshikning kengligi va narxi sizning ilovangizning sig'imini bevosita belgilaydi.
+    Bu darsda uning mexanizmini, narxini va uni kamaytirish usullarini o'rganamiz.
+  </p>
+
+  <nav class="toc" data-toc></nav>
+
+  <h2 id="nima">Syscall — funksiya chaqiruvi emas</h2>
+
+  <p>
+    Kodda <code>read(fd, buf, 4096)</code> oddiy funksiya chaqiruviga o'xshaydi. Aslida bu
+    butunlay boshqacha hodisa. Oddiy funksiya chaqiruvida protsessor shunchaki boshqa manzilga sakraydi.
+    Tizim chaqiruvida esa protsessor <strong>imtiyoz darajasini o'zgartiradi</strong>:
+  </p>
+
+  <ul>
+    <li>bajarilish ring 3 dan ring 0 ga o'tadi;</li>
+    <li>stek almashtiriladi — yadro o'z stekidan foydalanadi (user stekiga ishonib bo'lmaydi);</li>
+    <li>yadro barcha argumentlarni <em>ishonchsiz</em> deb tekshiradi;</li>
+    <li>qaytishda hamma narsa tiklanadi.</li>
+  </ul>
+
+  <p>
+    Nega shunchalik murakkab? Chunki bu chegara — <strong>xavfsizlik chegarasi</strong>.
+    Agar user space kodi yadro funksiyasiga to'g'ridan-to'g'ri sakray olsa, har qanday dastur
+    butun mashinaga egalik qilardi.
+  </p>
+
+  <h2 id="mexanika">Mexanika: <code>read()</code> chaqirilganda nima bo'ladi</h2>
+
+  <figure class="figure">
+    <svg viewBox="0 0 700 340" width="100%" role="img" aria-label="Tizim chaqiruvining bosqichma-bosqich oqimi">
+      <rect class="svg-box svg-box--accent" x="20" y="24" width="660" height="96" rx="8"/>
+      <text class="svg-label svg-label--accent" x="34" y="44">USER SPACE (ring 3)</text>
+
+      <rect class="svg-box" x="36" y="54" width="150" height="50" rx="5"/>
+      <text class="svg-label svg-label--strong" x="50" y="74">1. Ilova kodi</text>
+      <text class="svg-label" x="50" y="92">read(fd, buf, 4096)</text>
+
+      <rect class="svg-box" x="206" y="54" width="170" height="50" rx="5"/>
+      <text class="svg-label svg-label--strong" x="220" y="74">2. libc o'rami</text>
+      <text class="svg-label" x="220" y="92">rax=0, rdi=fd, rsi=buf…</text>
+
+      <rect class="svg-box" x="396" y="54" width="170" height="50" rx="5"/>
+      <text class="svg-label svg-label--strong" x="410" y="74">3. syscall komandasi</text>
+      <text class="svg-label" x="410" y="92">rejim almashadi</text>
+
+      <path class="svg-arrow" d="M186 79 H 202" marker-end="url(#a24)"/>
+      <path class="svg-arrow" d="M376 79 H 392" marker-end="url(#a24)"/>
+
+      <line x1="20" y1="134" x2="680" y2="134" stroke="#f2c661" stroke-width="1.5" stroke-dasharray="6 4"/>
+      <path class="svg-arrow" d="M481 104 V 150" marker-end="url(#a24)" stroke="#f2c661"/>
+      <text class="svg-label" x="492" y="130" fill="#f2c661">ring 3 → ring 0</text>
+
+      <rect class="svg-box svg-box--accent" x="20" y="150" width="660" height="130" rx="8"/>
+      <text class="svg-label svg-label--accent" x="34" y="170">KERNEL SPACE (ring 0)</text>
+
+      <rect class="svg-box" x="36" y="180" width="150" height="86" rx="5"/>
+      <text class="svg-label svg-label--strong" x="50" y="200">4. entry_SYSCALL</text>
+      <text class="svg-label" x="50" y="218">registrlarni saqlash</text>
+      <text class="svg-label" x="50" y="236">yadro stekiga o'tish</text>
+      <text class="svg-label" x="50" y="254">seccomp tekshiruvi</text>
+
+      <rect class="svg-box" x="206" y="180" width="170" height="86" rx="5"/>
+      <text class="svg-label svg-label--strong" x="220" y="200">5. sys_call_table[0]</text>
+      <text class="svg-label" x="220" y="218">→ ksys_read()</text>
+      <text class="svg-label" x="220" y="236">argumentlarni tekshirish</text>
+      <text class="svg-label" x="220" y="254">huquqlarni tekshirish</text>
+
+      <rect class="svg-box" x="396" y="180" width="170" height="86" rx="5"/>
+      <text class="svg-label svg-label--strong" x="410" y="200">6. VFS → fayl tizimi</text>
+      <text class="svg-label" x="410" y="218">page cache'da bormi?</text>
+      <text class="svg-label" x="410" y="236">yo'q → diskdan o'qish,</text>
+      <text class="svg-label" x="410" y="254">task uxlaydi (S holati)</text>
+
+      <rect class="svg-box" x="578" y="180" width="96" height="86" rx="5"/>
+      <text class="svg-label svg-label--strong" x="590" y="200">7. natija</text>
+      <text class="svg-label" x="590" y="222">rax = n</text>
+      <text class="svg-label" x="590" y="244">yoki -errno</text>
+
+      <path class="svg-arrow" d="M186 223 H 202" marker-end="url(#a24)"/>
+      <path class="svg-arrow" d="M376 223 H 392" marker-end="url(#a24)"/>
+      <path class="svg-arrow" d="M566 223 H 574" marker-end="url(#a24)"/>
+
+      <path class="svg-arrow" d="M626 180 V 158 H 120 V 110" marker-end="url(#a24)" stroke-dasharray="4 3"/>
+      <text class="svg-label" x="150" y="146" fill="#8b98a8">sysret — qaytish, ring 3</text>
+
+      <text class="svg-label svg-label--accent" x="20" y="308">Eng qimmat qismi 6-bosqich: ma'lumot cache'da bo'lsa ~1 µs, diskdan bo'lsa ~100 µs (1.1-dars)</text>
+      <text class="svg-label" x="20" y="328">Sof rejim almashinuvi (2–5 va qaytish) esa ~50–200 ns — lekin u HAR BIR chaqiruvda to'lanadi</text>
+
+      <defs>
+        <marker id="a24" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+          <path d="M0,0 L7,3.5 L0,7 z" fill="#2a4d7a"/>
+        </marker>
+      </defs>
+    </svg>
+    <figcaption>10-sxema. Tizim chaqiruvining to'liq yo'li. Syscall raqami <code>rax</code> registrida,
+    argumentlar <code>rdi, rsi, rdx, r10, r8, r9</code> da uzatiladi.</figcaption>
+  </figure>
+
+<p class="code-label">Eng past daraja: libc'siz syscall (x86-64, Linux)</p>
+<pre><code>; write(1, msg, 13) — assemblyda
+mov rax, 1          ; syscall raqami: 1 = write
+mov rdi, 1          ; 1-argument: fd = 1 (stdout)
+mov rsi, msg        ; 2-argument: bufer manzili
+mov rdx, 13         ; 3-argument: uzunlik
+syscall             ; ← MANA SHU yerda ring 0 ga o'tiladi
+; qaytgach: rax = yozilgan baytlar soni, yoki manfiy xato kodi
+
+; Muhim: xato -errno ko'rinishida qaytadi (masalan -9 = EBADF).
+; libc uni musbat errno ga aylantirib, funksiyadan -1 qaytaradi.</code></pre>
+
+  <div class="note">
+    <span class="note__title">Syscall raqamlari — o'zgarmas shartnoma</span>
+    <p>
+      Linux yadrosining eng qattiq qoidasi: <em>«user space'ni buzmaymiz»</em>. Syscall raqamlari va
+      ularning semantikasi hech qachon o'zgarmaydi — shuning uchun 20 yil oldin kompilyatsiya qilingan
+      binary bugungi yadroda ham ishlaydi. Yangi imkoniyat kerak bo'lsa, eski chaqiruv
+      o'zgartirilmaydi, balki yangisi qo'shiladi (<code>open</code> → <code>openat</code> →
+      <code>openat2</code>). Bu — API barqarorligining eng mashhur namunasi.
+    </p>
+  </div>
+
+  <h2 id="narxi">Narxi: raqamlar bilan</h2>
+
+  <p>1.1-darsdagi kechikish jadvalining davomi — endi OS darajasida:</p>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Amal</th><th>Taxminiy narxi</th><th>Nisbat</th></tr></thead>
+    <tbody>
+      <tr><td>Oddiy funksiya chaqiruvi</td><td class="num">~1–2 ns</td><td class="num">1×</td></tr>
+      <tr><td>vDSO orqali <code>clock_gettime</code> (syscallsiz)</td><td class="num">~20 ns</td><td class="num">~15×</td></tr>
+      <tr><td>Oddiy syscall (<code>getpid</code>)</td><td class="num">~50–100 ns</td><td class="num">~50×</td></tr>
+      <tr><td>Syscall + Spectre/Meltdown himoyasi</td><td class="num">~100–300 ns</td><td class="num">~150×</td></tr>
+      <tr><td><code>read()</code> page cache'dan</td><td class="num">~1–3 µs</td><td class="num">~1 500×</td></tr>
+      <tr><td>Kontekst almashinuvi (bloklanish)</td><td class="num">~1–5 µs</td><td class="num">~2 500×</td></tr>
+      <tr><td><code>read()</code> NVMe diskdan</td><td class="num">~100 µs</td><td class="num">~70 000×</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>
+    Ikki xulosa chiqadi. Birinchisi: <strong>bitta syscall qimmat emas</strong> — 100 ns arzimas.
+    Ikkinchisi: <strong>million syscall qimmat</strong> — 1 000 000 × 150 ns = 0.15 soniya sof yo'qotish.
+    Shuning uchun optimizatsiya doim bitta savolga qaytadi: <em>chaqiruvlar sonini kamaytirsa bo'ladimi?</em>
+  </p>
+
+  <div class="note note--warn">
+    <span class="note__title">Yashirin narx: cache va konveyer</span>
+    <p>
+      Syscall'ning o'lchangan narxi faqat boshlanishi. Ring almashinuvi konveyerni bo'shatadi,
+      yadro kodi sizning L1/L2 cache'ingizni o'z ma'lumoti bilan almashtiradi, KPTI esa TLB'ni
+      tozalaydi (2.3-dars). Siz qaytganingizda «sovigan» protsessorda ishlaysiz. Bu narx
+      <code>strace</code> da ko'rinmaydi, lekin real tezlikda seziladi.
+    </p>
+  </div>
+
+  <h2 id="libc">libc, buferlash va vDSO</h2>
+
+  <p>
+    Siz deyarli hech qachon syscall'ni bevosita chaqirmaysiz — oradagi <strong>libc</strong>
+    (glibc, musl) uni qulay funksiyaga o'raydi. Lekin libc shunchaki o'ram emas, u
+    <em>chaqiruvlar sonini kamaytiradi</em>:
+  </p>
+
+<p class="code-label">printf 1000 marta — lekin syscall bir necha marta</p>
+<pre><code>for (int i = 0; i &lt; 1000; i++)
+    printf("qator %d\n", i);
+// stdout terminalga ulangan bo'lsa — qatorli buferlash (har \n da write)
+// faylga yo'naltirilgan bo'lsa  — to'liq buferlash (4 KB to'lganda write)
+//   → 1000 ta printf ≈ 3-4 ta write syscall
+
+// Buferlashsiz yozish (har bir chaqiruv = 1 syscall):
+write(1, "qator\n", 6);            // to'g'ridan-to'g'ri syscall
+setvbuf(stdout, NULL, _IONBF, 0);  // buferlashni o'chirish — sekinlashadi!
+
+// Tekshirib ko'ring:
+//   $ strace -c -e trace=write ./dastur &gt; /dev/null</code></pre>
+
+  <h3>vDSO: syscallsiz syscall</h3>
+  <p>
+    Ba'zi chaqiruvlar shunchalik tez-tez ishlatiladiki (vaqtni olish — har bir log qatorida!),
+    ular uchun yadro maxsus hiyla qo'llaydi: <span class="term">vDSO</span> — yadro har bir protsessning
+    manzil fazosiga kichik kod va ma'lumot sohasini ulab qo'yadi (2.3-darsdagi mapping!).
+    <code>clock_gettime()</code> shu sohadagi soatni <strong>ring almashtirmasdan</strong> o'qiydi.
+  </p>
+
+<pre><code>$ cat /proc/self/maps | grep vdso
+7ffd3b3f2000-7ffd3b3f4000 r-xp  [vdso]      # har bir protsessda bor
+
+# Shuning uchun bu deyarli tekin:
+clock_gettime(CLOCK_MONOTONIC, &amp;ts);   // ~20 ns, syscall YO'Q
+# Ammo bu emas:
+stat("/etc/hosts", &amp;st);               // ~500 ns, haqiqiy syscall</code></pre>
+
+  <h2 id="kamaytirish">Syscall sonini kamaytirish: beshta usul</h2>
+
+  <p>
+    Bu — yuqori unumdorlikli server dasturlarining asosiy mavzusi. Har bir usul bitta g'oyaning
+    turli ko'rinishi: <strong>bir marta chaqirib, ko'proq ish qildirish</strong>.
+  </p>
+
+  <h3>1. Buferlash</h3>
+  <p>Eng oddiy va eng samarali. Kichik yozuvlarni to'plab, katta bo'lak qilib yuborish.</p>
+<pre><code>// Yomon: 100 000 ta syscall
+for (row in rows) write(fd, row, len);
+
+// Yaxshi: ~25 ta syscall (4 MB bufer bilan)
+buffer.append(row); if (buffer.size &gt;= 4*1024*1024) { write(fd, buffer); buffer.clear(); }</code></pre>
+
+  <h3>2. Vektorli I/O (<code>readv</code> / <code>writev</code>)</h3>
+  <p>Bir nechta ajratilgan buferni bitta chaqiruvda yozish — nusxa ko'chirmasdan.</p>
+<pre><code>struct iovec iov[3] = {
+    { header,  hlen },     // HTTP sarlavhasi
+    { body,    blen },     // tana
+    { trailer, tlen }
+};
+writev(fd, iov, 3);        // uchta bufer, BITTA syscall, oraliq nusxa yo'q</code></pre>
+
+  <h3>3. Zero-copy (<code>sendfile</code>, <code>splice</code>)</h3>
+  <p>
+    Statik faylni tarmoqqa uzatishda ma'lumot odatda to'rt marta ko'chiriladi:
+    disk → page cache → user bufer → soket buferi → NIC. <code>sendfile()</code> esa
+    user space'ni umuman chetlab o'tadi.
+  </p>
+<pre><code>// An'anaviy: 2 syscall + 2 ortiqcha nusxa, har bir bo'lak uchun
+while ((n = read(file_fd, buf, 64*1024)) &gt; 0) write(sock_fd, buf, n);
+
+// Zero-copy: bitta syscall, ma'lumot user space'ga umuman chiqmaydi
+sendfile(sock_fd, file_fd, NULL, file_size);
+// nginx'ning "sendfile on;" sozlamasi aynan shu — statik fayllarda katta farq beradi</code></pre>
+
+  <h3>4. Ko'p soketni bitta chaqiruvda kuzatish (<code>epoll</code>)</h3>
+  <p>
+    10 000 ta ulanish bo'lsa, har birini alohida so'rash mumkin emas.
+    <code>epoll_wait()</code> bitta chaqiruvda «kim tayyor» degan ro'yxatni qaytaradi —
+    1.3-darsdagi nginx va Node.js modelining asosi.
+  </p>
+<pre><code>int ep = epoll_create1(0);
+epoll_ctl(ep, EPOLL_CTL_ADD, sock, &amp;ev);       // bir marta ro'yxatga qo'shamiz
+
+while (1) {
+    int n = epoll_wait(ep, events, 64, -1);    // BITTA syscall
+    for (int i = 0; i &lt; n; i++)                // faqat tayyorlari qaytadi
+        handle(events[i].data.fd);
+}
+// Eski select()/poll() esa har safar butun ro'yxatni yadroga uzatardi — O(n).</code></pre>
+
+  <h3>5. Navbatga asoslangan I/O (<code>io_uring</code>)</h3>
+  <p>
+    Eng zamonaviy yondashuv: user va yadro <strong>umumiy xotiradagi ikkita halqali navbat</strong>
+    orqali gaplashadi (2.3-darsdagi shared mapping). Siz navbatga «100 ta o'qish» yozib qo'yasiz,
+    yadro bajarib, natijalarni ikkinchi navbatga qo'yadi. Ideal holatda syscall umuman bo'lmaydi.
+  </p>
+
+  <div class="note note--ok">
+    <span class="note__title">Naqshni ko'ryapsizmi</span>
+    <p>
+      Buferlash, <code>writev</code>, <code>sendfile</code>, <code>epoll</code>, <code>io_uring</code> —
+      hammasi bitta g'oyani turli darajada qo'llaydi: <strong>chegarani kamroq kesib o'tish va
+      har safar ko'proq ish bajarish</strong>. Bu xuddi 1.2-darsdagi «tarmoq so'rovlarini batch qilish»
+      qoidasining bir mashina ichidagi ko'rinishi. Chegara qanchalik qimmat bo'lsa,
+      guruhlash shunchalik foydali.
+    </p>
+  </div>
+
+  <h2 id="xatolar-bilan-ishlash">Xatolar bilan to'g'ri ishlash</h2>
+
+  <p>
+    Syscall'lar xatoni <code>-1</code> va <code>errno</code> orqali qaytaradi. Ularning uchtasi
+    <em>xato emas</em>, balki normal holat — va ularni noto'g'ri ishlash eng keng tarqalgan xatolardan biri:
+  </p>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>errno</th><th>Ma'nosi</th><th>To'g'ri javob</th></tr></thead>
+    <tbody>
+      <tr><td><code>EINTR</code></td><td>chaqiruv signal bilan uzildi</td><td>qaytadan chaqirish (retry), xato deb hisoblamaslik</td></tr>
+      <tr><td><code>EAGAIN</code> / <code>EWOULDBLOCK</code></td><td>non-blocking rejimda hozircha ma'lumot yo'q</td><td>epoll'ga qaytish va kutish</td></tr>
+      <tr><td><code>EMFILE</code> / <code>ENFILE</code></td><td>FD limiti tugadi</td><td>limitni oshirish, FD oqishini qidirish (1.2-dars!)</td></tr>
+      <tr><td><code>ENOSPC</code>, <code>EPIPE</code>, <code>ECONNRESET</code></td><td>haqiqiy xatolar</td><td>ishlov berish va jurnalga yozish</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+<p class="code-label">Qisman yozish — eng ko'p unutiladigan tafsilot</p>
+<pre><code>// XATO: write() hammasini yozdi deb o'ylash
+write(fd, buf, len);        // 4096 so'radingiz, 1500 bayt yozilishi mumkin!
+
+// TO'G'RI: qisman yozishni va EINTR'ni hisobga olish
+ssize_t written = 0;
+while (written &lt; len) {
+    ssize_t n = write(fd, buf + written, len - written);
+    if (n &lt; 0) {
+        if (errno == EINTR) continue;              // signal — qaytadan urinamiz
+        if (errno == EAGAIN) { wait_writable(fd); continue; }
+        return -1;                                 // haqiqiy xato
+    }
+    written += n;
+}
+// Xuddi shu read() uchun ham: qaytgan qiymat so'ralgandan kichik bo'lishi MUMKIN.</code></pre>
+
+  <h2 id="oilalar">Asosiy syscall oilalari</h2>
+
+  <p>Linux'da ~350 ta syscall bor, lekin amalda ularning oz qismi ishlatiladi:</p>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Soha</th><th>Asosiy chaqiruvlar</th><th>Qaysi darsda ko'rdik</th></tr></thead>
+    <tbody>
+      <tr><td>Protsess</td><td><code>clone</code>, <code>execve</code>, <code>exit_group</code>, <code>wait4</code>, <code>kill</code></td><td>2.2</td></tr>
+      <tr><td>Fayl</td><td><code>openat</code>, <code>read</code>, <code>write</code>, <code>close</code>, <code>lseek</code>, <code>statx</code>, <code>fsync</code></td><td>2.1</td></tr>
+      <tr><td>Xotira</td><td><code>mmap</code>, <code>munmap</code>, <code>mprotect</code>, <code>brk</code>, <code>madvise</code></td><td>2.3</td></tr>
+      <tr><td>Tarmoq</td><td><code>socket</code>, <code>bind</code>, <code>listen</code>, <code>accept4</code>, <code>sendto</code>, <code>recvfrom</code></td><td>1.3</td></tr>
+      <tr><td>Multipleksiya</td><td><code>epoll_create1</code>, <code>epoll_ctl</code>, <code>epoll_wait</code>, <code>io_uring_enter</code></td><td>bu dars</td></tr>
+      <tr><td>Sinxronizatsiya</td><td><code>futex</code> — barcha mutex va shartli o'zgaruvchilar ostida shu turadi</td><td>2.2</td></tr>
+      <tr><td>Vaqt</td><td><code>clock_gettime</code> (vDSO), <code>nanosleep</code>, <code>timerfd_create</code></td><td>bu dars</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>
+    <code>futex</code> alohida e'tiborga loyiq: mutex olishda <em>raqobat bo'lmasa</em>
+    syscall umuman qilinmaydi — hammasi user space'dagi atomik amal bilan hal bo'ladi.
+    Syscall faqat kutish kerak bo'lgandagina chaqiriladi. Shuning uchun <code>strace</code> da
+    ko'p <code>futex</code> ko'rinishi — qulf uchun raqobat bor degani (2.2-dars).
+  </p>
+
+  <h2 id="tahlil">Amaliyot: strace bilan muammoni topish</h2>
+
+  <p>
+    Bu — kurs davomidagi eng amaliy ko'nikmalardan biri. «Dastur sekin» degan noaniq shikoyat
+    <code>strace -c</code> yordamida bir necha soniyada aniq raqamga aylanadi:
+  </p>
+
+<p class="code-label">Real tahlil misoli</p>
+<pre><code>$ strace -c -f -p 4210    # -f: thread'lar bilan birga
+^C
+% time     seconds  usecs/call     calls    errors syscall
+------ ----------- ----------- --------- --------- ----------------
+ 71.2    4.102391          12    341 902           write        ← 340 ming write!
+ 18.4    1.059822         103     10 284           futex        ← qulf uchun raqobat
+  6.1    0.351004           3    102 841           clock_gettime
+  3.2    0.184920        1849        100           fsync
+------ ----------- ----------- --------- --------- ----------------
+
+# Xulosa: sekundiga 340 ming write — buferlash yo'q.
+# Tuzatish: log yozuvini buferlash → syscall soni 1000 barobar kamayadi.
+
+# Boshqa foydali rejimlar:
+$ strace -T -e trace=openat ./app       # har bir chaqiruvning vaqti
+$ strace -f -e trace=network ./app      # faqat tarmoq chaqiruvlari
+$ strace -e trace=%file ./app 2&gt;&amp;1 | grep ENOENT   # topilmagan fayllar
+
+# strace sekinlashtiradi (har bir chaqiruvni ushlaydi). Ishlab chiqarishda:
+$ perf trace -p 4210                    # ancha yengil
+$ bpftrace -e 'tracepoint:syscalls:sys_enter_write { @[comm] = count(); }'</code></pre>
+
+  <div class="note note--warn">
+    <span class="note__title">strace'ni ehtiyot bilan ishlating</span>
+    <p>
+      <code>strace</code> <code>ptrace</code> mexanizmiga tayanadi va har bir syscall'ni ikki marta
+      to'xtatadi — dastur 10–100 barobar sekinlashishi mumkin. Yuklangan ishlab chiqarish
+      protsessiga uni ulash — o'zi avariya sababi bo'lishi mumkin. U yerda
+      <code>perf trace</code> yoki eBPF (<code>bpftrace</code>) ishlating.
+    </p>
+  </div>
+
+  <h2 id="xavfsizlik">Syscall yuzasi va xavfsizlik</h2>
+
+  <p>
+    Syscall interfeysi — user space uchun yadroga yagona kirish nuqtasi. Demak u ayni paytda
+    <strong>hujum yuzasi</strong> ham: yadrodagi zaiflik odatda qaysidir syscall orqali qo'zg'atiladi.
+    Shuning uchun zamonaviy izolyatsiya bu yuzani toraytiradi:
+  </p>
+
+  <ul>
+    <li><strong>seccomp-bpf</strong> — protsessga qaysi syscall'lar ruxsat etilishini belgilaydigan filtr.
+        Docker standart profilida ~44 ta syscall taqiqlangan; ruxsatsizini chaqirish
+        <code>EPERM</code> yoki <code>SIGSYS</code> beradi.</li>
+    <li><strong>Capabilities</strong> — root huquqlarini mayda bo'laklarga bo'ladi
+        (<code>CAP_NET_BIND_SERVICE</code> — 1024 dan past portga bog'lanish, <code>CAP_SYS_ADMIN</code> — deyarli hamma narsa).</li>
+    <li><strong>Namespaces + cgroups</strong> — 2.3-darsda ko'rganimizdek, ko'rinish va miqdorni cheklaydi.</li>
+  </ul>
+
+<pre><code># Konteynerda syscall taqiqlangani qanday ko'rinadi:
+$ docker run alpine mount -t tmpfs none /mnt
+mount: permission denied (are you root?)     # seccomp/capability to'sdi
+
+# Aniq nima taqiqlanganini ko'rish:
+$ grep Seccomp /proc/self/status
+Seccomp: 2                                    # 2 = filtr rejimi yoqilgan
+$ capsh --print | head -3</code></pre>
+
+  <div class="note">
+    <span class="note__title">Dizayn nuqtai nazaridan</span>
+    <p>
+      Ilovangiz qancha kam turdagi syscall ishlatsa, uni shunchalik qattiq qamrab olish mumkin.
+      «Faqat <code>read</code>, <code>write</code>, <code>epoll_wait</code> ishlatadigan» servis
+      uchun juda tor seccomp profili yozish mumkin — bu 1.3-darsdagi «rollarni ajratish»
+      qoidasining xavfsizlikdagi ko'rinishi.
+    </p>
+  </div>
+
+  <h2 id="xatolar-24">Tez-tez qilinadigan xatolar</h2>
+
+  <ul class="mistakes">
+    <li>
+      <b>Kichik bo'laklarni buferlashsiz yozish</b>
+      Har bir <code>write()</code> — rejim almashinuvi; 340 ming chaqiruv sekundlarni yeydi.
+      <span class="fix">Buferlang yoki <code>writev</code> ishlating; <code>strace -c</code> bilan tekshiring.</span>
+    </li>
+    <li>
+      <b><code>write()</code> va <code>read()</code> ning qaytgan qiymatini tekshirmaslik</b>
+      Qisman yozish/o'qish normal holat — ma'lumot jimgina yo'qoladi.
+      <span class="fix">Har doim halqa ichida qoldiqni yozing va <code>EINTR</code> ni qayta urining.</span>
+    </li>
+    <li>
+      <b><code>EAGAIN</code> ni xato deb hisoblash</b>
+      Non-blocking soketda bu «hozircha ma'lumot yo'q» degani xolos.
+      <span class="fix">Ulanishni yopmang — <code>epoll</code> ga qaytib, tayyor bo'lishini kuting.</span>
+    </li>
+    <li>
+      <b>Issiq halqada vaqtni ko'p so'rash</b>
+      vDSO tufayli arzon bo'lsa ham, million marta chaqirilsa seziladi (va ba'zi muhitlarda vDSO ishlamaydi).
+      <span class="fix">Vaqtni bir marta olib, halqa davomida qayta ishlating.</span>
+    </li>
+    <li>
+      <b>Ishlab chiqarishda <code>strace</code> ni uzoq muddat ulab qo'yish</b>
+      Protsess 10–100 barobar sekinlashadi va bu o'zi avariyaga olib kelishi mumkin.
+      <span class="fix">Qisqa namuna oling yoki <code>perf trace</code> / <code>bpftrace</code> ishlating.</span>
+    </li>
+    <li>
+      <b><code>fsync</code> ni «har ehtimolga qarshi» har yozuvdan keyin chaqirish</b>
+      Bu eng qimmat syscall'lardan biri — sig'imni keskin tushiradi.
+      <span class="fix">Guruhlab tasdiqlang (group commit) yoki chidamlilik talabini aniq belgilang (2.1-dars).</span>
+    </li>
+    <li>
+      <b>Konteynerda syscall taqiqini kod xatosi deb qidirish</b>
+      <code>EPERM</code> ko'pincha seccomp yoki capability sababidan keladi.
+      <span class="fix">Avval <code>grep Seccomp /proc/self/status</code> va <code>capsh --print</code> bilan tekshiring.</span>
+    </li>
+  </ul>
+
+  <div class="summary">
+    <h2 id="xulosa-24">Xulosa</h2>
+    <ul>
+      <li>Syscall — funksiya chaqiruvi emas, imtiyoz chegarasini kesib o'tish: rejim, stek va ishonch darajasi almashadi.</li>
+      <li>Bitta chaqiruv ~100–300 ns turadi; muammo hech qachon bitta chaqiruvda emas, ularning <strong>sonida</strong>.</li>
+      <li>libc buferlash bilan chaqiruvlarni kamaytiradi; vDSO esa ba'zi chaqiruvlarni umuman yo'q qiladi.</li>
+      <li>Kamaytirish usullari bitta g'oyaning turli darajalari: buferlash → <code>writev</code> → <code>sendfile</code> → <code>epoll</code> → <code>io_uring</code>.</li>
+      <li><code>EINTR</code>, <code>EAGAIN</code> va qisman yozish — xato emas, normal holat; ularni to'g'ri ishlash ishonchlilikning asosi.</li>
+      <li><code>strace -c</code> «dastur sekin» degan shikoyatni bir necha soniyada aniq raqamga aylantiradi; ishlab chiqarishda esa <code>perf</code>/eBPF ishlatiladi.</li>
+      <li>Syscall interfeysi ayni paytda hujum yuzasi — seccomp, capabilities va namespace'lar uni toraytiradi.</li>
+    </ul>
+  </div>
+
+  <div class="note" style="margin-top:28px">
+    <span class="note__title">Asosiy mavzu 2 yakunlandi</span>
+    <p>
+      Endi apparat ustidagi qatlam to'liq ochildi: OS nima uchun bor va qanday tuzilgan (2.1),
+      bajarilish qanday tashkil qilinadi (2.2), xotira qanday ajratiladi va izolyatsiya qilinadi (2.3)
+      va bularning hammasiga qanday murojaat qilinadi (2.4). Keyingi asosiy mavzular
+      shu poydevor ustiga quriladi — ular kurs to'ldirilgan sari bosh sahifada avtomatik paydo bo'ladi.
+    </p>
+  </div>
+
+  <div class="done-bar" data-done-bar></div>
+  <nav class="lesson-nav" data-lesson-nav></nav>
+
+</article>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap"><span>2.4 · Operatsion tizim va abstraktsiya</span></div>
+</footer>
+
+<script src="assets/script.js"></script>
+</body>
+</html>

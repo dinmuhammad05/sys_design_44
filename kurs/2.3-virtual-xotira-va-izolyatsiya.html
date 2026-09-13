@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="uz" data-dars="2.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2.3 Virtual xotira va izolyatsiya</title>
+<meta name="description" content="Sahifa jadvali va TLB, page fault, demand paging, copy-on-write, address space xaritasi, mmap, swap, OOM killer, RSS va konteyner limitlari.">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230d1117'/><rect x='8' y='8' width='16' height='16' rx='3' fill='none' stroke='%2358a6ff' stroke-width='2'/><rect x='13' y='13' width='6' height='6' fill='%2358a6ff'/></svg>">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0d1117">
+<meta name="color-scheme" content="dark">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tizim kursi">
+<meta name="mobile-web-app-capable" content="yes">
+</head>
+<body>
+
+<header class="topbar" data-topbar></header>
+
+<main class="wrap">
+<article class="lesson">
+
+  <p class="eyebrow" data-eyebrow>Asosiy mavzu 2 · Operatsion tizim va abstraktsiya</p>
+  <h1>2.3 Virtual xotira va izolyatsiya</h1>
+
+  <p class="lead">
+    Dasturingizdagi har bir ko'rsatkich — <em>yolg'on</em>. <code>0x7fff8a2b40</code> manzili
+    RAM'dagi hech qanday joyni bildirmaydi; u protsessorning har bir murojaatida jadval orqali
+    haqiqiy manzilga tarjima qilinadi. Bu bitta hiyla o'nlab muammoni birdan hal qiladi:
+    izolyatsiya, fragmentatsiya, xotirani bo'lishish, fayllarni xotiraga ulash, konteynerlar.
+    Bu darsda o'sha mexanizmni va uning haqiqiy narxini ochamiz.
+  </p>
+
+  <nav class="toc" data-toc></nav>
+
+  <h2 id="muammo">Muammo: fizik xotirani to'g'ridan-to'g'ri berib bo'lmaydi</h2>
+
+  <p>
+    Tasavvur qiling, har bir protsess RAM'ning haqiqiy manzillari bilan ishlaydi. Uchta jiddiy
+    muammo darhol paydo bo'ladi:
+  </p>
+
+  <ul>
+    <li><strong>Himoya yo'q.</strong> Har qanday protsess <code>0x1000</code> manziliga yozib,
+        boshqa protsessning (yoki yadroning) ma'lumotini buzishi mumkin. Bir marta xato — butun tizim.</li>
+    <li><strong>Joylashuv oldindan noma'lum.</strong> Dastur qaysi manzildan boshlanishini
+        kompilyatsiya paytida bilmaydi — kim bo'sh joyni qayerdan berishini oldindan aytolmaydi.</li>
+    <li><strong>Tashqi fragmentatsiya.</strong> 100 MB bo'sh joy bor, lekin u 1 MB lik
+        bo'laklarga tarqalgan — 50 MB uzluksiz talab qilgan protsess xotira ololmaydi.</li>
+  </ul>
+
+  <p>
+    Yechim — kompyuter fanidagi eng mashhur naqshlardan biri: <strong>qo'shimcha bir qatlam qo'shish</strong>.
+    Protsess ko'rgan manzil <em>virtual</em> bo'ladi va uni fizik manzilga apparat tarjima qiladi.
+  </p>
+
+  <h2 id="sahifa-jadvali">Tarjima mexanizmi: sahifalar, jadval, TLB</h2>
+
+  <p>
+    Xotira <strong>sahifalar</strong>ga bo'linadi — odatda 4 KB. Virtual sahifa
+    (<span class="term">page</span>) fizik ramkaga (<span class="term">frame</span>) moslanadi.
+    Moslikni <strong>sahifa jadvali</strong> saqlaydi, tarjimani esa protsessor ichidagi
+    <span class="term">MMU</span> bajaradi — har bir xotira murojaatida, apparat tezligida.
+  </p>
+
+  <figure class="figure">
+    <svg viewBox="0 0 700 300" width="100%" role="img" aria-label="Virtual manzilning fizik manzilga tarjimasi">
+      <rect class="svg-box svg-box--accent" x="20" y="30" width="200" height="70" rx="6"/>
+      <text class="svg-label svg-label--accent" x="34" y="50">VIRTUAL MANZIL (64-bit)</text>
+      <text class="svg-label svg-label--strong" x="34" y="72">sahifa raqami | siljish</text>
+      <text class="svg-label" x="34" y="90">0x7f3a2b4 | 0x1c0</text>
+
+      <path class="svg-arrow" d="M220 65 H 268" marker-end="url(#a23)"/>
+      <text class="svg-label" x="222" y="56">MMU</text>
+
+      <rect class="svg-box" x="272" y="20" width="150" height="120" rx="6"/>
+      <text class="svg-label svg-label--strong" x="286" y="40">TLB (cache)</text>
+      <text class="svg-label" x="286" y="62">~1 ns, 1500 yozuv</text>
+      <text class="svg-label svg-label--accent" x="286" y="86">topildi (hit) →</text>
+      <text class="svg-label" x="286" y="106">darhol fizik manzil</text>
+      <text class="svg-label" x="286" y="128">topilmadi (miss) ↓</text>
+
+      <rect class="svg-box" x="272" y="160" width="150" height="120" rx="6"/>
+      <text class="svg-label svg-label--strong" x="286" y="180">SAHIFA JADVALI</text>
+      <text class="svg-label" x="286" y="202">4 daraja, RAM'da</text>
+      <text class="svg-label" x="286" y="224">~4 × 80 ns = 320 ns</text>
+      <text class="svg-label" x="286" y="246">bayroqlar: R/W/X,</text>
+      <text class="svg-label" x="286" y="266">present, user, dirty</text>
+
+      <path class="svg-arrow" d="M347 140 V 156" marker-end="url(#a23)"/>
+      <path class="svg-arrow" d="M422 80 H 470" marker-end="url(#a23)"/>
+      <path class="svg-arrow" d="M422 220 H 450 V 96 H 470" marker-end="url(#a23)"/>
+
+      <rect class="svg-box svg-box--accent" x="474" y="56" width="200" height="70" rx="6"/>
+      <text class="svg-label svg-label--accent" x="488" y="76">FIZIK MANZIL</text>
+      <text class="svg-label svg-label--strong" x="488" y="98">ramka | o'sha siljish</text>
+      <text class="svg-label" x="488" y="116">0x1a40 | 0x1c0</text>
+
+      <rect class="svg-box" x="474" y="176" width="200" height="88" rx="6"/>
+      <text class="svg-label svg-label--strong" x="488" y="196">present = 0 bo'lsa:</text>
+      <text class="svg-label" x="488" y="218">PAGE FAULT →</text>
+      <text class="svg-label" x="488" y="238">yadro sahifani yaratadi</text>
+      <text class="svg-label" x="488" y="256">yoki diskdan yuklaydi</text>
+
+      <path class="svg-arrow" d="M422 250 H 470" marker-end="url(#a23)" stroke-dasharray="4 3"/>
+
+      <defs>
+        <marker id="a23" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+          <path d="M0,0 L7,3.5 L0,7 z" fill="#2a4d7a"/>
+        </marker>
+      </defs>
+    </svg>
+    <figcaption>8-sxema. Har bir xotira murojaati shu yo'ldan o'tadi. TLB bo'lmasa,
+    har bir o'qish uchun avval 4 marta jadvalga borish kerak bo'lardi.</figcaption>
+  </figure>
+
+  <h3>Nega jadval ko'p darajali</h3>
+  <p>
+    64-bitli tizimda manzil fazosi ulkan. Agar bitta tekis jadval tuzilsa, u har bir protsess uchun
+    terabaytlab joy egallardi. Shuning uchun jadval <strong>daraxt</strong> shaklida: x86-64 da
+    4 (yoki 5) daraja. Foydalanilmagan sohalar uchun daraxtning butun shoxlari <em>umuman mavjud
+    bo'lmaydi</em> — xotira faqat haqiqatan ishlatilgan joylarga sarflanadi.
+  </p>
+
+  <h3>TLB — tarjimalar cache'i</h3>
+  <p>
+    Har bir murojaat uchun 4 marta RAM'ga borish halokatli bo'lardi (1.1-darsdagi 80 ns ni eslang).
+    Shuning uchun protsessorda <span class="term">TLB</span> bor — oxirgi tarjimalar cache'i.
+    TLB hit ~1 ns, miss esa yuzlab nanosekund. Bu quyidagi amaliy natijani beradi:
+  </p>
+
+  <div class="note">
+    <span class="note__title">Xotira bo'ylab sakrash ikki marta jarima oladi</span>
+    <p>
+      Ma'lumot bo'ylab tartibsiz yurganingizda siz nafaqat <em>cache miss</em> (1.1-dars), balki
+      <em>TLB miss</em> ham olasiz. Shuning uchun katta ma'lumot bilan ishlaydigan tizimlar
+      (DB, JVM) ba'zan <strong>katta sahifalar</strong>ga (2 MB, <span class="term">huge pages</span>)
+      o'tadi: bitta TLB yozuvi 4 KB o'rniga 2 MB ni qamrab oladi va TLB miss'lar keskin kamayadi.
+    </p>
+  </div>
+
+  <h2 id="page-fault">Page fault: «yo'q» degani «xato» degani emas</h2>
+
+  <p>
+    Sahifa jadvalidagi yozuvda <code>present</code> bayrog'i bor. U <code>0</code> bo'lsa, MMU
+    tarjima qila olmaydi va <strong>page fault</strong> istisnosini hosil qiladi — boshqaruv yadroga o'tadi.
+    Bu xato emas, balki <em>OS uchun signal</em>: «shu manzil bo'yicha ish qilish kerak».
+  </p>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Turi</th><th>Nima bo'ldi</th><th>Narxi</th><th>Qachon uchraydi</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Minor fault</strong></td><td>sahifa RAM'da bor, faqat jadvalga ulanmagan</td><td class="num">~1 µs</td><td>birinchi tegish, COW, page cache'dan ulash</td></tr>
+      <tr><td><strong>Major fault</strong></td><td>sahifani diskdan o'qish kerak</td><td class="num">~100 µs – 10 ms</td><td>mmap qilingan fayl, swap'dan qaytarish</td></tr>
+      <tr><td><strong>Invalid fault</strong></td><td>bunday manzil protsessga umuman tegishli emas</td><td>—</td><td><code>SIGSEGV</code> — segmentation fault</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>
+    Ya'ni <code>SIGSEGV</code> — page fault'ning faqat uchinchi turi. Qolgan ikkitasi
+    <strong>normal ish rejimi</strong> va ular soniyasiga minglab marta sodir bo'ladi.
+  </p>
+
+  <h3>Demand paging: hech narsa oldindan berilmaydi</h3>
+
+<p class="code-label">malloc() nima qiladi va nima qilmaydi</p>
+<pre><code>char *buf = malloc(1L * 1024 * 1024 * 1024);   // 1 GB "ajratildi" — ~1 µs
+// Hozircha HECH QANDAY fizik xotira band qilinmagan.
+// Faqat virtual manzil fazosida soha belgilandi (VSZ oshdi, RSS o'zgarmadi).
+
+buf[0] = 'x';        // ← MANA SHU YERDA minor page fault: bitta 4 KB sahifa beriladi
+memset(buf, 0, 1GB); // 262 144 ta page fault — endi RSS haqiqatan 1 GB
+
+// Shuning uchun:
+//   "xotira ajratish" tez, "xotiraga birinchi yozish" sekin.
+// Kechikishga sezgir tizimlar buferni oldindan "isitadi" (pre-fault):
+//   mmap(..., MAP_POPULATE, ...)  yoki  mlock()</code></pre>
+
+  <h3>Copy-on-write: 2.2-darsdagi <code>fork()</code> ning siri</h3>
+  <p>
+    <code>fork()</code> paytida yadro xotirani nusxalamaydi. U ota va farzandning sahifa jadvallarini
+    <em>bir xil fizik ramkalarga</em> ishora qildiradi va barcha sahifalarni «faqat o'qish» deb belgilaydi.
+    Kimdir yozmoqchi bo'lsa — page fault, yadro o'sha <strong>bitta</strong> sahifani nusxalaydi
+    va yozishga ruxsat beradi.
+  </p>
+
+  <div class="note note--warn">
+    <span class="note__title">Redis'ning mashhur muammosi</span>
+    <p>
+      Redis diskka saqlashda <code>fork()</code> qiladi: farzand xotiradagi ma'lumotni tinchgina
+      faylga yozadi, ota esa xizmat ko'rsatishda davom etadi. Lekin ota <em>yozishda davom etgani</em>
+      uchun sahifalar bittalab nusxalanaveradi. Yozuv intensiv bo'lsa, xotira sarfi saqlash paytida
+      deyarli <strong>ikki barobar</strong> oshishi mumkin. Aynan shuning uchun Redis hujjatlarida
+      «xotiraning yarmidan ko'pini band qilmang» deb yoziladi — bu COW hisobiga.
+    </p>
+  </div>
+
+  <h2 id="manzil-fazosi">Protsessning manzil fazosi: xarita</h2>
+
+  <p>
+    Har bir protsessning virtual fazosi tasodifiy emas — u aniq sohalardan iborat.
+    Bu xaritani bilish <code>SIGSEGV</code>, xotira oqishi va stack overflow'ni tushunish uchun zarur.
+  </p>
+
+  <figure class="figure">
+    <svg viewBox="0 0 700 340" width="100%" role="img" aria-label="Protsessning virtual manzil fazosi xaritasi">
+      <text class="svg-label svg-label--accent" x="20" y="20">Yuqori manzillar (0x7fff…)</text>
+
+      <rect class="svg-box" x="20" y="28" width="400" height="34" rx="5"/>
+      <text class="svg-label svg-label--strong" x="34" y="49">Yadro sohasi — protsessga ko'rinmaydi (ring 0 kerak)</text>
+
+      <rect class="svg-box svg-box--accent" x="20" y="68" width="400" height="42" rx="5"/>
+      <text class="svg-label svg-label--strong" x="34" y="88">STACK — lokal o'zgaruvchilar, chaqiruv freymlari</text>
+      <text class="svg-label" x="34" y="104">pastga o'sadi ↓ · limiti odatda 8 MB (ulimit -s)</text>
+
+      <path class="svg-arrow" d="M215 114 V 136" marker-end="url(#a23b)"/>
+      <text class="svg-label" x="228" y="130">o'sish yo'nalishi</text>
+
+      <rect class="svg-box" x="20" y="142" width="400" height="46" rx="5"/>
+      <text class="svg-label svg-label--strong" x="34" y="162">mmap sohasi — umumiy kutubxonalar, katta malloc,</text>
+      <text class="svg-label" x="34" y="180">fayl mapping'lari, thread steklari</text>
+
+      <path class="svg-arrow" d="M215 234 V 212" marker-end="url(#a23b)"/>
+      <text class="svg-label" x="228" y="228">heap yuqoriga o'sadi</text>
+
+      <rect class="svg-box svg-box--accent" x="20" y="240" width="400" height="42" rx="5"/>
+      <text class="svg-label svg-label--strong" x="34" y="260">HEAP — malloc/new (brk yoki mmap orqali)</text>
+      <text class="svg-label" x="34" y="276">yuqoriga o'sadi ↑</text>
+
+      <rect class="svg-box" x="20" y="288" width="400" height="24" rx="5"/>
+      <text class="svg-label svg-label--strong" x="34" y="304">BSS — nolga tenglashtirilgan global o'zgaruvchilar</text>
+
+      <rect class="svg-box" x="20" y="316" width="400" height="22" rx="5"/>
+      <text class="svg-label svg-label--strong" x="34" y="331">DATA + TEXT — kod (faqat o'qish va bajarish)</text>
+
+      <rect class="svg-box" x="444" y="68" width="236" height="244" rx="6"/>
+      <text class="svg-label svg-label--strong" x="458" y="90">Muhim tafsilotlar</text>
+      <text class="svg-label" x="458" y="116">▸ TEXT faqat-o'qish: kodni</text>
+      <text class="svg-label" x="458" y="132">   o'zgartirsangiz — SIGSEGV</text>
+      <text class="svg-label" x="458" y="158">▸ Bir xil kutubxona barcha</text>
+      <text class="svg-label" x="458" y="174">   protsesslarda BITTA nusxa</text>
+      <text class="svg-label" x="458" y="200">▸ Stack va heap orasida</text>
+      <text class="svg-label" x="458" y="216">   ulkan bo'sh oraliq bor</text>
+      <text class="svg-label" x="458" y="242">▸ ASLR: manzillar har safar</text>
+      <text class="svg-label" x="458" y="258">   tasodifiy siljitiladi</text>
+      <text class="svg-label" x="458" y="284">▸ Har bir thread'ga alohida</text>
+      <text class="svg-label" x="458" y="300">   stek (2.2-dars)</text>
+
+      <defs>
+        <marker id="a23b" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+          <path d="M0,0 L7,3.5 L0,7 z" fill="#2a4d7a"/>
+        </marker>
+      </defs>
+    </svg>
+    <figcaption>9-sxema. Virtual manzil fazosi. Bu xaritani <code>/proc/PID/maps</code> orqali
+    o'z ko'zingiz bilan ko'rish mumkin.</figcaption>
+  </figure>
+
+<p class="code-label">Xaritani o'qish</p>
+<pre><code>$ cat /proc/self/maps
+55a3f2c00000-55a3f2c02000 r--p 00000000 08:01 1049  /usr/bin/cat     # TEXT (o'qish)
+55a3f2c02000-55a3f2c06000 r-xp 00002000 08:01 1049  /usr/bin/cat     # kod (bajarish)
+55a3f4a21000-55a3f4a42000 rw-p 00000000 00:00 0     [heap]
+7f8c4a000000-7f8c4a028000 r--p 00000000 08:01 2311  /usr/lib/libc.so.6
+7ffd3b2e0000-7ffd3b301000 rw-p 00000000 00:00 0     [stack]
+
+# Ustunlar: manzil oralig'i | huquqlar | fayldagi siljish | qurilma | inode | fayl
+# r/w/x — o'qish/yozish/bajarish;  p — private (COW),  s — shared
+
+# Har bir sohaning HAQIQIY fizik sarfi:
+$ grep -A3 heap /proc/self/smaps
+Rss:      132 kB        # fizik xotirada
+Pss:      132 kB        # bo'lishilganini ulushga bo'lib hisoblangan
+Private_Dirty:  132 kB  # faqat shu protsessniki va o'zgartirilgan</code></pre>
+
+  <h2 id="mmap">mmap: faylni xotiraga aylantirish</h2>
+
+  <p>
+    <code>mmap()</code> — virtual xotiraning eng kuchli qo'llanishi: u fayl (yoki bo'sh xotira)
+    sohasini manzil fazosiga ulaydi. Shundan keyin faylga murojaat qilish uchun
+    <code>read()</code> kerak emas — oddiy ko'rsatkich yetarli, kerakli sahifalar esa
+    page fault orqali o'z-o'zidan yuklanadi.
+  </p>
+
+<p class="code-label">read() va mmap() farqi</p>
+<pre><code>// A) An'anaviy yo'l: ma'lumot ikki marta ko'chiriladi
+read(fd, buf, n);
+//   disk → page cache (yadro xotirasi) → sizning buferingiz
+//   har bir bo'lak uchun syscall (2.4-dars)
+
+// B) mmap: ko'chirish yo'q, syscall deyarli yo'q
+char *p = mmap(NULL, len, PROT_READ, MAP_PRIVATE, fd, 0);
+printf("%c", p[1000000]);   // shu yerda kerakli sahifa o'zi yuklanadi
+//   page cache sahifasi TO'G'RIDAN-TO'G'RI manzil fazosiga ulanadi
+
+// Qachon mmap yaxshi: katta fayl, tasodifiy murojaat, ko'p protsess bir faylni o'qiydi
+// Qachon yomon: kichik fayl (page fault syscall'dan qimmat), ketma-ket bir marta o'qish,
+//               tarmoq fayl tizimi (xato holatlari SIGBUS bo'lib keladi)</code></pre>
+
+  <p>
+    <code>MAP_SHARED</code> bilan ulangan soha protsesslar orasida <strong>haqiqatan bo'lishiladi</strong>:
+    biri yozgan narsani ikkinchisi darhol ko'radi. Bu — eng tez IPC usuli, chunki hech narsa ko'chirilmaydi.
+    Ma'lumotlar bazalari, <code>tmpfs</code>, umumiy cache'lar shu mexanizmga tayanadi.
+  </p>
+
+  <div class="note note--ok">
+    <span class="note__title">Page cache — ko'rinmas, lekin eng muhim cache</span>
+    <p>
+      Fayldan o'qilgan har bir blok RAM'da <strong>page cache</strong> da saqlanadi. Shuning uchun
+      ikkinchi marta o'qish disk tezligida emas, RAM tezligida bo'ladi.
+      <code>free -h</code> dagi <code>buff/cache</code> ustuni — shu. U «band xotira» emas:
+      kerak bo'lganda darhol bo'shatiladi. «Serverimda bo'sh xotira qolmadi» degan xavotir
+      ko'pincha aynan shu ustunni noto'g'ri o'qishdan kelib chiqadi — <code>available</code> ustuniga qarang.
+    </p>
+  </div>
+
+  <h2 id="izolyatsiya">Izolyatsiya: nega protsess qo'shnisini ko'ra olmaydi</h2>
+
+  <p>
+    Endi mexanizm aniq: har bir protsessning <strong>o'z sahifa jadvali</strong> bor.
+    Kontekst almashinuvida yadro <code>CR3</code> registriga yangi jadval manzilini yozadi va
+    shu payt butun manzil fazosi almashadi. Boshqa protsessning sahifalari jadvalda <em>umuman yo'q</em> —
+    demak ularga murojaat qilishning imkoni ham yo'q. Bu dasturiy tekshiruv emas, apparat qonuni.
+  </p>
+
+  <ul>
+    <li><strong>Protsesslar orasida:</strong> turli sahifa jadvallari → to'liq izolyatsiya.</li>
+    <li><strong>Thread'lar orasida:</strong> bitta jadval → izolyatsiya <em>yo'q</em> (2.2-dars shundan).</li>
+    <li><strong>Yadro va protsess orasida:</strong> yadro sohasi jadvalda bor, lekin «faqat ring 0»
+        deb belgilangan. Meltdown hujumi aynan shu yerdagi teshikni ko'rsatgani uchun
+        <span class="term">KPTI</span> joriy qilindi: endi yadro jadvali alohida saqlanadi va
+        har bir syscall biroz qimmatroq bo'ldi (2.4-dars).</li>
+  </ul>
+
+  <h3>Ataylab bo'lishish</h3>
+  <p>
+    Izolyatsiya — standart holat, lekin uni <em>ataylab</em> teshish mumkin:
+    <code>mmap(MAP_SHARED)</code>, POSIX <code>shm_open</code>, yoki <code>/dev/shm</code>.
+    Bunda ikki protsessning jadvallari bitta fizik ramkaga ishora qiladi. Tezlik maksimal,
+    lekin endi 2.2-darsdagi barcha konkurentlik muammolari qaytadi — sinxronizatsiya sizning zimmangizda.
+  </p>
+
+  <h3>Konteynerlar: izolyatsiyaning boshqa o'lchovi</h3>
+  <p>
+    Muhim farqni ajratib oling: virtual xotira <strong>manzil fazosini</strong> ajratadi.
+    Konteyner esa boshqa narsalarni ajratadi:
+  </p>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Mexanizm</th><th>Nimani ajratadi</th><th>Misol</th></tr></thead>
+    <tbody>
+      <tr><td>Sahifa jadvali</td><td>xotira manzillari</td><td>har bir protsess</td></tr>
+      <tr><td><strong>Namespaces</strong></td><td>ko'rinish: PID, tarmoq, mount, foydalanuvchi</td><td>konteyner ichida <code>ps</code> faqat o'zinikini ko'radi</td></tr>
+      <tr><td><strong>cgroups</strong></td><td>miqdor: CPU, xotira, I/O limiti</td><td><code>--memory=512m</code></td></tr>
+      <tr><td>seccomp / capabilities</td><td>ruxsat etilgan syscall'lar</td><td>2.4-darsda</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2 id="xotira-tugaganda">Xotira tugaganda: swap, OOM va cgroup limitlari</h2>
+
+  <p>
+    Virtual xotira ajoyib illuziya yaratadi — lekin fizik RAM baribir chekli (1.2-dars).
+    Xotira tugaganda uch narsa sodir bo'lishi mumkin:
+  </p>
+
+  <h3>1. Toza sahifalarni tashlab yuborish</h3>
+  <p>
+    Page cache va fayldan yuklangan kod sahifalari <em>toza</em> (o'zgartirilmagan) bo'lsa,
+    yadro ularni shunchaki o'chiradi — kerak bo'lganda diskdan qayta o'qiladi. Bu eng arzon yo'l,
+    lekin keyingi murojaat major fault beradi, ya'ni sekinlashish boshlanadi.
+  </p>
+
+  <h3>2. Swap</h3>
+  <p>
+    O'zgartirilgan (<em>dirty</em>) anonim sahifalarni tashlab bo'lmaydi — ularni diskka ko'chirish kerak.
+    Bu swap. Narxi: 80 ns → 100 µs, ya'ni <strong>1000 baroboridan ortiq</strong> sekinlashish.
+    Shuning uchun serverlarda ko'pincha swap o'chiriladi: sekin o'lish o'rniga tez o'lish afzal,
+    chunki sekin o'layotgan tizim butun klasterni ham sekinlashtiradi.
+  </p>
+
+  <h3>3. OOM killer</h3>
+  <p>
+    Hech narsa qolmasa, yadro protsess tanlab o'ldiradi. U <code>oom_score</code> bo'yicha eng
+    «semiz» nomzodni topadi — va bu odatda sizning asosiy ilovangiz bo'ladi.
+  </p>
+
+<p class="code-label">OOM sodir bo'lganini qanday bilish mumkin</p>
+<pre><code>$ dmesg -T | grep -i -A2 'killed process'
+[Sat Sep 12 11:04:22] Out of memory: Killed process 4210 (java)
+    total-vm:8402944kB, anon-rss:6291456kB, file-rss:0kB
+
+# Konteynerda limit oshsa — xuddi shu, faqat butun mashina emas, cgroup ichida:
+$ cat /sys/fs/cgroup/memory.max          # limit
+$ cat /sys/fs/cgroup/memory.events       # oom_kill hisoblagichi
+$ docker inspect NAME --format '{{.State.OOMKilled}}'   # true bo'lsa — sabab topildi
+
+# Muhim nomzodni himoya qilish:
+$ echo -1000 &gt; /proc/4210/oom_score_adj   # deyarli o'ldirilmaydigan qilish</code></pre>
+
+  <div class="note note--danger">
+    <span class="note__title">Konteyner ichidagi ilova o'z limitini bilmaydi</span>
+    <p>
+      Klassik ishlab chiqarish nosozligi: konteynerga <code>--memory=2g</code> berilgan, lekin ilova
+      (JVM, Node, Go) <code>/proc/meminfo</code> ni o'qib <em>xostning</em> 64 GB ini ko'radi va
+      heap'ni shunga moslab kattalashtiradi. Natijada limit oshadi va konteyner
+      <strong>ogohlantirishsiz o'ldiriladi</strong> (exit code 137). Yechim: limitni ilovaga
+      aniq aytish (<code>-XX:MaxRAMPercentage</code>, <code>GOMEMLIMIT</code>, <code>--max-old-space-size</code>)
+      va zamonaviy runtime versiyalaridan foydalanish — ular cgroup limitini o'zi o'qiy oladi.
+    </p>
+  </div>
+
+  <h2 id="olchash">Xotirani to'g'ri o'lchash: VSZ, RSS, PSS</h2>
+
+  <p>
+    «Protsess qancha xotira ishlatyapti?» degan savolning bitta javobi yo'q — virtual xotira
+    tufayli bir nechta turli javob bor va ularni chalkashtirish juda keng tarqalgan:
+  </p>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Ko'rsatkich</th><th>Nimani o'lchaydi</th><th>Qachon foydali</th></tr></thead>
+    <tbody>
+      <tr><td><strong>VSZ</strong> (VmSize)</td><td>butun virtual soha — ishlatilmagani ham</td><td>deyarli hech qachon; JVM'da u 10 GB ko'rinishi normal</td></tr>
+      <tr><td><strong>RSS</strong></td><td>hozir RAM'da bo'lgan sahifalar</td><td>asosiy ko'rsatkich, lekin bo'lishilgan sahifalarni har bir protsessga to'liq sanaydi</td></tr>
+      <tr><td><strong>PSS</strong></td><td>bo'lishilgan sahifalar ulushga bo'lingan</td><td>ko'p protsessli tizimda haqiqiy sarfni bilish uchun</td></tr>
+      <tr><td><strong>USS</strong> / Private_Dirty</td><td>faqat shu protsessniki</td><td>«bu protsessni o'chirsam qancha bo'shaydi?»</td></tr>
+      <tr><td><code>memory.current</code></td><td>cgroup hisobi (page cache bilan)</td><td>konteyner limitiga nisbatan — OOM shunga qaraydi</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+<pre><code>$ ps -o pid,vsz,rss,comm -p 4210
+  PID    VSZ   RSS COMMAND
+ 4210 8402944 612348 java          # VSZ 8 GB, lekin haqiqiy sarf 600 MB
+
+$ pmap -x 4210 | tail -1           # sohalar bo'yicha taqsimot
+$ grep Pss /proc/4210/smaps_rollup # haqiqiy ulush
+
+# Tizim bo'ylab:
+$ free -h
+              total    used    free   shared  buff/cache   available
+Mem:           31Gi   8.2Gi   1.1Gi    412Mi        22Gi        22Gi
+#                                                   ↑            ↑
+#                        bu "band" emas — cache      bu haqiqiy zaxira
+
+$ vmstat 1     # si/so ustunlari nolga teng bo'lishi kerak (swap harakati)</code></pre>
+
+  <h2 id="xatolar-23">Tez-tez qilinadigan xatolar</h2>
+
+  <ul class="mistakes">
+    <li>
+      <b>VSZ ni xotira sarfi deb hisoblash</b>
+      Virtual soha ajratilgan, lekin fizik xotira band qilinmagan bo'lishi mumkin.
+      <span class="fix">RSS/PSS ga qarang; konteynerda esa <code>memory.current</code> ga.</span>
+    </li>
+    <li>
+      <b><code>free</code> dagi <code>buff/cache</code> ni «xotira tugadi» deb tushunish</b>
+      Page cache — foyda, zarar emas; u kerak bo'lganda darhol bo'shatiladi.
+      <span class="fix"><code>available</code> ustunini o'qing.</span>
+    </li>
+    <li>
+      <b>Konteyner limitini ilovaga aytmaslik</b>
+      Ilova xost xotirasini ko'radi, heap'ni kattalashtiradi va exit 137 bilan o'ldiriladi.
+      <span class="fix">Heap chegarasini limitga bog'lang va <code>OOMKilled</code> ni monitoringga qo'shing.</span>
+    </li>
+    <li>
+      <b>Serverda swap'ga tayanish</b>
+      Swap tizimni o'ldirmaydi, lekin uni 1000 barobar sekinlashtiradi — bu ko'pincha yomonroq.
+      <span class="fix">Kechikishga sezgir servislarda swap'ni o'chiring yoki <code>swappiness</code> ni juda past qiling; xotirani to'g'ri o'lchab rejalashtiring.</span>
+    </li>
+    <li>
+      <b>Har qanday «sekin start» ni kod aybdori deb bilish</b>
+      Birinchi murojaatlar minor/major fault bilan sekin bo'ladi (demand paging, sovuq page cache).
+      <span class="fix">Muhim buferlarni oldindan isiting (<code>MAP_POPULATE</code>) va o'lchashni «isinishdan» keyin boshlang.</span>
+    </li>
+    <li>
+      <b>Kichik fayllarni <code>mmap</code> qilish</b>
+      Har bir mapping — sahifa jadvali ishi va TLB bosimi; kichik hajmda oddiy <code>read()</code> tezroq.
+      <span class="fix">mmap'ni katta va tasodifiy o'qiladigan fayllar uchun saqlang.</span>
+    </li>
+    <li>
+      <b>Xotira oqishini fragmentatsiyadan ajratmaslik</b>
+      RSS o'sayotgan bo'lsa ham, ba'zan sabab — allokator sahifalarni OS'ga qaytarmagani.
+      <span class="fix">Allokator statistikasiga qarang (<code>malloc_info</code>, jemalloc/tcmalloc hisobotlari), keyin xulosa qiling.</span>
+    </li>
+  </ul>
+
+  <div class="summary">
+    <h2 id="xulosa-23">Xulosa</h2>
+    <ul>
+      <li>Virtual xotira bitta qo'shimcha qatlam bilan uchta muammoni hal qiladi: himoya, joylashtirish erkinligi va fragmentatsiya.</li>
+      <li>Tarjimani MMU bajaradi: sahifa jadvali (4 daraja) + TLB cache. Tartibsiz murojaat cache miss ustiga TLB miss ham qo'shadi.</li>
+      <li>Page fault odatda xato emas: minor fault — demand paging va COW mexanizmi, major fault — diskdan yuklash.</li>
+      <li><code>malloc</code> virtual soha beradi, fizik sahifa esa birinchi tegishda ajratiladi; <code>fork()</code> COW tufayli arzon.</li>
+      <li>Izolyatsiya — har bir protsessning alohida sahifa jadvali; thread'lar buni bo'lishadi, konteynerlar esa namespace va cgroups bilan boshqa o'lchovda ajratadi.</li>
+      <li>Xotira tugaganda: toza sahifalarni tashlash → swap (1000× sekin) → OOM killer. Konteynerda limit oshishi exit 137 beradi.</li>
+      <li>O'lchashda VSZ emas, RSS/PSS va cgroup hisobini o'qing; <code>buff/cache</code> band xotira emas.</li>
+    </ul>
+  </div>
+
+  <div class="done-bar" data-done-bar></div>
+  <nav class="lesson-nav" data-lesson-nav></nav>
+
+</article>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap"><span>2.3 · Operatsion tizim va abstraktsiya</span></div>
+</footer>
+
+<script src="assets/script.js"></script>
+</body>
+</html>

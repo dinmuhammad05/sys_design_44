@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="uz" data-dars="2.1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2.1 OS: asosiy tushunchalar</title>
+<meta name="description" content="Operatsion tizim nima uchun bor: user va kernel rejimlari, monolit va mikrokernel, OS beradigan abstraksiyalar va «hamma narsa fayl» falsafasi.">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230d1117'/><rect x='8' y='8' width='16' height='16' rx='3' fill='none' stroke='%2358a6ff' stroke-width='2'/><rect x='13' y='13' width='6' height='6' fill='%2358a6ff'/></svg>">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0d1117">
+<meta name="color-scheme" content="dark">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tizim kursi">
+<meta name="mobile-web-app-capable" content="yes">
+</head>
+<body>
+
+<header class="topbar" data-topbar></header>
+
+<main class="wrap">
+<article class="lesson">
+
+  <p class="eyebrow" data-eyebrow>Asosiy mavzu 2 · Operatsion tizim va abstraktsiya</p>
+  <h1>2.1 OS: asosiy tushunchalar</h1>
+
+  <p class="lead">
+    Birinchi asosiy mavzuda apparatni ko'rdik: protsessor, xotira ierarxiyasi, disk, tarmoq.
+    Lekin siz kod yozganda bularning hech biri bilan bevosita ishlamaysiz — <code>open()</code>,
+    <code>malloc()</code>, <code>new Thread()</code> deb yozasiz xolos. Oradagi bu ulkan farqni
+    <strong>operatsion tizim</strong> yopadi. Bu darsda OS nima uchun umuman mavjudligini,
+    u qanday qilib bitta mashinani ko'pchilikka bo'lib berishini va bu abstraksiyaning
+    haqiqiy narxini o'rganamiz.
+  </p>
+
+  <nav class="toc" data-toc></nav>
+
+  <h2 id="nega-os">OS nima uchun bor: uchta muammo</h2>
+
+  <p>
+    Tasavvur qiling, operatsion tizim yo'q. Sizning dasturingiz mashinaga yagona xo'jayin:
+    diskka bevosita buyruq yuboradi, xohlagan xotira manziliga yozadi, tarmoq kartasi registrlarini
+    o'zi to'ldiradi. Bunday tizimlar haqiqatan ham bo'lgan (va hozir ham mikrokontrollerlarda bor).
+    Ular uchta devorga urildi:
+  </p>
+
+  <h3>1. Ko'chirib bo'lmaslik (portability)</h3>
+  <p>
+    Har bir disk kontrolleri, har bir tarmoq kartasining o'z registrlari va protokoli bor.
+    Dastur ularning har biri bilan alohida gaplashsa, har bir yangi apparat uchun dastur qaytadan
+    yoziladi. Yechim — <strong>abstraksiya</strong>: dastur «fayl» deb biladi, qurilma bilan
+    gaplashishni drayver qiladi.
+  </p>
+
+  <h3>2. Bo'lishish (sharing)</h3>
+  <p>
+    Bir vaqtda 200 ta dastur ishlashi kerak, protsessor esa 8 ta yadroga ega. Kim qachon ishlaydi?
+    Kimning xotirasi qayerda? Kimdir cheksiz sikl yozib qo'ysa, mashina butunlay qotib qolishi kerakmi?
+    Yechim — <strong>resurslarni boshqaruvchi hakam</strong>: rejalashtiruvchi (scheduler),
+    xotira menejeri, I/O rejalashtiruvchisi.
+  </p>
+
+  <h3>3. Himoya (protection)</h3>
+  <p>
+    Agar har bir dastur istalgan xotira manzilini o'qiy olsa, brauzerdagi sahifa parol menejeringiz
+    xotirasini o'qiy oladi. Agar har bir dastur diskka bevosita yoza olsa, har qanday xato butun
+    tizimni buzadi. Yechim — <strong>imtiyoz darajalari</strong> va qattiq chegaralar.
+  </p>
+
+  <div class="note">
+    <span class="note__title">Bitta jumlada</span>
+    <p>
+      Operatsion tizim — bu <strong>apparatni abstraksiyaga aylantiruvchi, uni ko'pchilik orasida
+      taqsimlaydigan va ularni bir-biridan himoya qiladigan dastur</strong>. Uchta vazifa:
+      <em>abstraksiya</em>, <em>taqsimlash</em>, <em>himoya</em>. OS haqidagi har qanday
+      tafsilot shu uchtasining qaysidir biriga xizmat qiladi.
+    </p>
+  </div>
+
+  <h2 id="qatlamlar">Qatlamlar xaritasi: kod qayerda ishlaydi</h2>
+
+  <p>
+    Kompyuterdagi kod ikkita mutlaqo boshqacha dunyoda bajariladi. Ularning chegarasini
+    <em>apparatning o'zi</em> qo'riqlaydi — bu dasturiy kelishuv emas, protsessorga o'rnatilgan mexanizm.
+  </p>
+
+  <figure class="figure">
+    <svg viewBox="0 0 700 360" width="100%" role="img" aria-label="Operatsion tizim qatlamlari sxemasi">
+      <rect class="svg-box svg-box--accent" x="30" y="20" width="640" height="72" rx="8"/>
+      <text class="svg-label svg-label--accent" x="44" y="40">USER SPACE — imtiyozsiz rejim (ring 3)</text>
+      <rect class="svg-box" x="48" y="50" width="142" height="32" rx="5"/>
+      <text class="svg-label svg-label--strong" x="62" y="70">Brauzer</text>
+      <rect class="svg-box" x="202" y="50" width="142" height="32" rx="5"/>
+      <text class="svg-label svg-label--strong" x="216" y="70">Nginx</text>
+      <rect class="svg-box" x="356" y="50" width="142" height="32" rx="5"/>
+      <text class="svg-label svg-label--strong" x="370" y="70">Sizning ilovangiz</text>
+      <rect class="svg-box" x="510" y="50" width="142" height="32" rx="5"/>
+      <text class="svg-label svg-label--strong" x="524" y="70">DB serveri</text>
+
+      <rect class="svg-box" x="30" y="104" width="640" height="34" rx="6"/>
+      <text class="svg-label svg-label--strong" x="44" y="125">libc (glibc/musl) — syscall ustidagi qulay o'ram: printf, malloc, fopen</text>
+
+      <text class="svg-label" x="44" y="154" fill="#f2c661">▲ TIZIM CHAQIRUVI CHEGARASI (2.4-dars)</text>
+      <line x1="30" y1="162" x2="670" y2="162" stroke="#f2c661" stroke-width="1.5" stroke-dasharray="6 4"/>
+
+      <rect class="svg-box svg-box--accent" x="30" y="172" width="640" height="130" rx="8"/>
+      <text class="svg-label svg-label--accent" x="44" y="192">KERNEL SPACE — imtiyozli rejim (ring 0)</text>
+
+      <rect class="svg-box" x="48" y="200" width="142" height="44" rx="5"/>
+      <text class="svg-label svg-label--strong" x="62" y="218">Scheduler</text>
+      <text class="svg-label" x="62" y="234">kim ishlaydi (2.2)</text>
+
+      <rect class="svg-box" x="202" y="200" width="142" height="44" rx="5"/>
+      <text class="svg-label svg-label--strong" x="216" y="218">Xotira menejeri</text>
+      <text class="svg-label" x="216" y="234">sahifalar (2.3)</text>
+
+      <rect class="svg-box" x="356" y="200" width="142" height="44" rx="5"/>
+      <text class="svg-label svg-label--strong" x="370" y="218">VFS + FS</text>
+      <text class="svg-label" x="370" y="234">fayl abstraksiyasi</text>
+
+      <rect class="svg-box" x="510" y="200" width="142" height="44" rx="5"/>
+      <text class="svg-label svg-label--strong" x="524" y="218">Tarmoq steki</text>
+      <text class="svg-label" x="524" y="234">TCP/IP, soketlar</text>
+
+      <rect class="svg-box" x="48" y="254" width="604" height="34" rx="5"/>
+      <text class="svg-label svg-label--strong" x="62" y="275">Drayverlar — har bir qurilmaning o'z tilida gaplashadi</text>
+
+      <rect class="svg-box" x="30" y="316" width="640" height="34" rx="6"/>
+      <text class="svg-label svg-label--strong" x="44" y="337">APPARAT — CPU, RAM, disk, NIC (1-asosiy mavzu)</text>
+
+      <path class="svg-arrow" d="M350 138 V 168" marker-end="url(#a21)"/>
+      <path class="svg-arrow" d="M350 302 V 312" marker-end="url(#a21)"/>
+
+      <defs>
+        <marker id="a21" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+          <path d="M0,0 L7,3.5 L0,7 z" fill="#2a4d7a"/>
+        </marker>
+      </defs>
+    </svg>
+    <figcaption>5-sxema. Ikki dunyo va ular orasidagi yagona eshik. Sariq punktir chiziqdan
+    yuqorida turgan kod apparatga bevosita tegolmaydi.</figcaption>
+  </figure>
+
+  <h3>User mode va kernel mode farqi nimada</h3>
+
+  <p>
+    Protsessorda maxsus bit bor (x86'da CPL — current privilege level). U <code>0</code> bo'lsa —
+    kernel rejimi, <code>3</code> bo'lsa — foydalanuvchi rejimi. Farq juda aniq:
+  </p>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th></th><th>User mode (ring 3)</th><th>Kernel mode (ring 0)</th></tr></thead>
+    <tbody>
+      <tr><td>Xotira</td><td>faqat o'z sahifa jadvalidagi manzillar</td><td>butun fizik xotira</td></tr>
+      <tr><td>Imtiyozli instruksiyalar</td><td>taqiqlangan (sahifa jadvalini almashtirish, I/O port, HLT)</td><td>ruxsat</td></tr>
+      <tr><td>Qurilmalar</td><td>faqat syscall orqali</td><td>bevosita</td></tr>
+      <tr><td>Xato oqibati</td><td>protsess o'ladi, tizim ishlaydi</td><td><span class="term">kernel panic</span> — butun mashina to'xtaydi</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>
+    Ring 3 dagi kod taqiqlangan instruksiyani bajarishga urinsa, protsessor uni bajarmaydi —
+    u <strong>trap</strong> hosil qiladi va boshqaruvni yadroga o'tkazadi. Yadro esa odatda
+    protsessga <code>SIGSEGV</code> yoki <code>SIGILL</code> signalini yuboradi. Bu <em>dasturiy
+    tekshiruv emas</em>: uni aylanib o'tishning iloji yo'q, chunki uni protsessorning o'zi bajaradi.
+  </p>
+
+  <div class="note note--warn">
+    <span class="note__title">Nega bu tizim dizaynerini qiziqtiradi</span>
+    <p>
+      Har bir rejim almashinuvi — bu vaqt. Har bir <code>read()</code> chaqiruvi ring 3 → ring 0 → ring 3
+      yo'lini bosib o'tadi. Bitta o'tish o'zi ~50–200 ns, lekin u cache va konveyerni ham buzadi.
+      Shuning uchun yuqori unumdorlikli tizimlar syscall sonini kamaytirish uchun kurashadi:
+      buferlash, <code>writev</code>, <code>sendfile</code>, <code>io_uring</code> — hammasi shu maqsadda
+      (2.4-darsda batafsil).
+    </p>
+  </div>
+
+  <h2 id="abstraksiyalar">OS beradigan abstraksiyalar xaritasi</h2>
+
+  <p>
+    OS'ni o'rganish aslida <strong>uning abstraksiyalarini o'rganish</strong>. Ularning soni hayratlanarli
+    darajada kam — deyarli hamma narsa shu bir nechta tushunchaga qaytadi:
+  </p>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Fizik haqiqat</th><th>OS abstraksiyasi</th><th>Illuziya</th><th>Qayerda o'rganamiz</th></tr></thead>
+    <tbody>
+      <tr><td>Cheklangan yadrolar</td><td><strong>Protsess / thread</strong></td><td>«men yolg'iz ishlayapman»</td><td>2.2</td></tr>
+      <tr><td>Fizik RAM sahifalari</td><td><strong>Virtual manzil fazosi</strong></td><td>«butun xotira meniki»</td><td>2.3</td></tr>
+      <tr><td>Disk bloklari</td><td><strong>Fayl va katalog</strong></td><td>«nomlangan uzluksiz oqim»</td><td>bu dars</td></tr>
+      <tr><td>Tarmoq paketlari</td><td><strong>Soket</strong></td><td>«ikki tomonlama quvur»</td><td>bu dars</td></tr>
+      <tr><td>Qurilma registrlari</td><td><strong>Qurilma fayli</strong> (<code>/dev/*</code>)</td><td>«o'qish va yozish»</td><td>bu dars</td></tr>
+      <tr><td>Taymer uzilishlari</td><td><strong>Uyqu, taymer, soat</strong></td><td>«vaqt o'tdi»</td><td>bu dars</td></tr>
+      <tr><td>Uzilishlar va istisnolar</td><td><strong>Signal</strong></td><td>«menga xabar keldi»</td><td>2.2</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>
+    Diqqat qiling: har bir qatorda OS <em>bir narsani boshqa narsaga aylantiryapti</em>.
+    Va har bir aylantirish narxga ega. Abstraksiya bepul emas — u <strong>qulaylikni tezlikka,
+    ba'zan esa nazoratga almashtiradi</strong>.
+  </p>
+
+  <h2 id="hamma-narsa-fayl">«Hamma narsa fayl» — Unix'ning bosh g'oyasi</h2>
+
+  <p>
+    Unix'ning eng kuchli qarori shu bo'ldi: turli-tuman resurslarga <strong>bitta interfeys</strong> berish.
+    Disk fayli ham, terminal ham, tarmoq soketi ham, protsess haqidagi ma'lumot ham —
+    hammasi <code>open</code>, <code>read</code>, <code>write</code>, <code>close</code> bilan ishlanadi.
+  </p>
+
+  <p>
+    Buning natijasi — <span class="term">file descriptor</span> (FD): protsessning ochiq resurslar
+    jadvalidagi oddiy butun son. <code>0</code> — stdin, <code>1</code> — stdout, <code>2</code> — stderr,
+    keyingilari — siz ochgan fayl va soketlar.
+  </p>
+
+<p class="code-label">Bitta interfeys — turli resurslar</p>
+<pre><code>$ ls -l /proc/self/fd
+lrwx------ 0 -&gt; /dev/pts/3          # terminal
+lrwx------ 1 -&gt; /dev/pts/3          # terminal (stdout)
+lr-x------ 3 -&gt; /home/user/data.csv # oddiy fayl
+lrwx------ 4 -&gt; socket:[482913]     # TCP soket
+lrwx------ 5 -&gt; anon_inode:[eventpoll]  # epoll obyekti
+
+# Har biri bilan bir xil chaqiruvlar ishlaydi:
+read(3, buf, 4096);   // fayldan
+read(4, buf, 4096);   // tarmoqdan
+write(1, "salom\n", 6);</code></pre>
+
+  <p>
+    Shuning uchun Unix'da quvurlar (<code>|</code>) shunchalik tabiiy: <code>grep</code> o'zi
+    fayldanmi, tarmoqdanmi yoki boshqa dasturdanmi o'qiyotganini bilmaydi — u shunchaki FD dan o'qiydi.
+    Bitta abstraksiya butun ekotizimni tug'dirdi.
+  </p>
+
+  <h3><code>/proc</code> va <code>/sys</code> — yadro bilan fayl orqali suhbat</h3>
+
+  <p>
+    Linux bu g'oyani oxirigacha olib bordi: yadroning ichki holati ham fayl ko'rinishida ko'rsatiladi.
+    <code>/proc</code> — diskda mavjud bo'lmagan virtual fayl tizimi; har bir o'qish aslida yadro
+    funksiyasini chaqiradi.
+  </p>
+
+<p class="code-label">Yadrodan ma'lumot olish — hech qanday maxsus API'siz</p>
+<pre><code># Protsessning holati, xotirasi, thread'lari soni
+$ cat /proc/self/status | head -12
+Name:   cat
+State:  R (running)
+Pid:    28714
+PPid:   3921
+Threads: 1
+VmRSS:   1284 kB          # haqiqatan band qilingan fizik xotira (2.3-dars)
+
+# Butun tizim bo'yicha
+$ cat /proc/cpuinfo        # protsessor va yadrolar
+$ cat /proc/meminfo        # xotira holati
+$ cat /proc/loadavg        # 1/5/15 daqiqalik yuklama
+$ cat /proc/PID/limits     # FD limiti va boshqa chegaralar (1.2-dars!)
+
+# Sozlamalarni o'zgartirish ham fayl yozish orqali
+$ sysctl net.core.somaxconn          # = /proc/sys/net/core/somaxconn
+$ echo 1024 &gt; /proc/sys/net/core/somaxconn</code></pre>
+
+  <div class="note note--ok">
+    <span class="note__title">Amaliy foyda</span>
+    <p>
+      Ishlab chiqarishda muammoni tekshirish uchun sizga maxsus vositalar shart emas —
+      <code>cat</code> yetarli. <code>top</code>, <code>ps</code>, <code>free</code> kabi
+      dasturlarning deyarli barchasi shunchaki <code>/proc</code> ni o'qib, chiroyli ko'rsatadi xolos.
+    </p>
+  </div>
+
+  <h2 id="yadro-arxitekturasi">Yadro arxitekturalari: monolit, mikrokernel, gibrid</h2>
+
+  <p>
+    Yadro ichida nima bo'lishi kerak degan savolga turli javoblar bor va bu javob
+    <strong>tezlik bilan izolyatsiya orasidagi kelishuv</strong>dir — 1.3-darsdagi «rollarni ajratish»
+    savolining aynan o'zi, faqat bitta mashina ichida.
+  </p>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Model</th><th>G'oyasi</th><th>Yutug'i</th><th>Narxi</th><th>Misol</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Monolit</strong></td>
+        <td>drayverlar, FS, tarmoq — hammasi yadro ichida, bitta manzil fazosida</td>
+        <td>tez: ichki chaqiruvlar oddiy funksiya chaqiruvi</td>
+        <td>drayverdagi xato = butun tizim qulaydi</td>
+        <td>Linux, FreeBSD</td>
+      </tr>
+      <tr>
+        <td><strong>Mikrokernel</strong></td>
+        <td>yadroda faqat eng zaruri: IPC, rejalashtirish, xotira. Qolgani — user space'dagi servislar</td>
+        <td>izolyatsiya: drayver yiqilsa, qayta ishga tushiriladi</td>
+        <td>har bir murojaat — xabar almashish, ya'ni sekinroq</td>
+        <td>QNX, seL4, MINIX</td>
+      </tr>
+      <tr>
+        <td><strong>Gibrid</strong></td>
+        <td>mikrokernel g'oyasi, lekin unumdorlik uchun ko'p qismi yadroda</td>
+        <td>amaliy murosa</td>
+        <td>chegaralar aniq emas</td>
+        <td>Windows NT, XNU (macOS)</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>
+    Linux monolit bo'lsa-da, qat'iy emas: u <strong>modullar</strong> orqali kengayadi.
+    Drayverni ishlab turgan yadroga qo'shish va olib tashlash mumkin.
+  </p>
+
+<p class="code-label">Linux modullari</p>
+<pre><code>$ lsmod | head -5
+Module                  Size  Used by
+nvme                   49152  3
+ext4                  978944  1
+tcp_bbr                20480  0        # TCP tirbandlikni boshqarish algoritmi — modul!
+
+$ sudo modprobe tcp_bbr        # yuklash
+$ dmesg | tail                 # yadro jurnali — muammo qidirganda birinchi joy</code></pre>
+
+  <p>
+    Muhim tafsilot: modul yadro ichida, ring 0 da ishlaydi. Ya'ni u «plagin» bo'lsa ham,
+    undagi xato butun mashinani o'ldirishi mumkin. Aynan shuning uchun zamonaviy Linux ba'zi
+    kengaytmalarni <span class="term">eBPF</span> orqali bajaradi: bu — yadro ichida ishlaydigan,
+    lekin <em>tekshiriladigan</em> (verifier) va cheklangan kod.
+  </p>
+
+  <h2 id="yuklanish">Mashina yonganda nima bo'ladi</h2>
+
+  <p>Boot ketma-ketligi OS'ning qatlamlari qanday yig'ilishini yaxshi ko'rsatadi:</p>
+
+  <ol>
+    <li><strong>UEFI/BIOS</strong> — apparatni tekshiradi va yuklovchini (bootloader) topadi.</li>
+    <li><strong>Bootloader</strong> (GRUB) — yadro va <code>initramfs</code> ni xotiraga yuklaydi.</li>
+    <li><strong>Yadro ishga tushadi</strong> — xotira menejeri, scheduler, drayverlarni ishga soladi,
+        ildiz fayl tizimini ulaydi.</li>
+    <li><strong>PID 1 ishga tushadi</strong> (<code>systemd</code> yoki <code>init</code>) — bu
+        birinchi <em>user space</em> protsessi. Undan keyingi barcha protsesslar shundan tarqaladi (2.2-dars).</li>
+    <li><strong>Servislar</strong> — tarmoq, jurnal, SSH, sizning ilovangiz.</li>
+  </ol>
+
+  <div class="note">
+    <span class="note__title">Konteynerga ko'prik</span>
+    <p>
+      Docker konteyneri — bu «kichik virtual mashina» emas. U <strong>o'sha yadroni</strong>
+      ishlatadigan oddiy protsess: faqat unga alohida fayl tizimi ko'rinishi, alohida tarmoq va
+      alohida PID raqamlari ko'rsatilgan (namespaces), resursi esa cheklangan (cgroups).
+      Shuning uchun konteyner ichida <code>uname -r</code> sizga <em>xost</em> yadrosining
+      versiyasini beradi va konteyner boshqa yadro talab qiladigan dasturni ishlata olmaydi.
+      Izolyatsiya mexanizmlarini 2.3-darsda ko'ramiz.
+    </p>
+  </div>
+
+  <h2 id="abstraksiya-narxi">Abstraksiyaning narxi: u qachon oqadi</h2>
+
+  <p>
+    1.1-darsda «abstraksiyalar oqadi» degan edik. OS darajasida bu ayniqsa yaqqol ko'rinadi.
+    Quyidagi uchta misol — mana shu oqishning klassik ko'rinishlari:
+  </p>
+
+  <h3>Misol 1: <code>write()</code> qaytdi — ma'lumot diskdami?</h3>
+  <p>
+    Yo'q. <code>write()</code> ma'lumotni <strong>page cache</strong> ga (RAM'ga) yozadi va darhol qaytadi.
+    Yadro uni diskka keyinroq yozadi. Elektr o'chsa — ma'lumot yo'q. Kafolat kerak bo'lsa
+    <code>fsync()</code> chaqirish shart, u esa sekin (1.2-darsdagi DB bo'limini eslang).
+  </p>
+
+<pre><code>write(fd, buf, n);   // ~1 µs   — faqat RAM'ga tushdi
+fsync(fd);           // ~1-10 ms — endi haqiqatan diskda (SSD'da ham qimmat)</code></pre>
+
+  <h3>Misol 2: <code>malloc()</code> xotira ajratdimi?</h3>
+  <p>
+    Ko'pincha yo'q. U faqat <em>virtual</em> manzil fazosida joy belgilaydi; fizik sahifa siz o'sha
+    manzilga birinchi marta tekkanda beriladi (2.3-dars). Shuning uchun «xotira ajratish» tez,
+    «xotiraga birinchi yozish» esa kutilmaganda sekin bo'ladi.
+  </p>
+
+  <h3>Misol 3: soket «quvur» emas</h3>
+  <p>
+    TCP soketi uzluksiz oqim ko'rinishida bo'lsa ham, ostida paketlar, oynalar va qayta uzatishlar bor.
+    <code>write()</code> qaytgani — «mijoz oldi» degani emas, faqat «yadro buferiga sig'di» degani.
+    Bufer to'lsa, <code>write()</code> bloklanadi — bu <strong>backpressure</strong> ning
+    eng past darajadagi ko'rinishi (1.2-dars).
+  </p>
+
+  <div class="note note--danger">
+    <span class="note__title">Umumiy qoida</span>
+    <p>
+      Abstraksiya <em>me'yordagi</em> holatni yashiradi, lekin <em>chegaraviy</em> holatni yashira olmaydi.
+      Tizim yuklanmagan paytda hamma narsa oddiy funksiya chaqiruvidek ko'rinadi; yuklama oshgan,
+      xotira tugagan yoki disk sekinlashgan paytda ostidagi haqiqiy mexanizm yuzaga chiqadi.
+      Muhandisning vazifasi — o'sha paytda nima bo'layotganini tushuna olish.
+    </p>
+  </div>
+
+  <h2 id="amaliyot">Amaliyot: OS'ni o'z ko'zingiz bilan ko'rish</h2>
+
+  <p>Bu buyruqlar keyingi uchta darsda doimiy hamrohingiz bo'ladi:</p>
+
+<p class="code-label">Eng foydali beshta vosita</p>
+<pre><code># 1) Dastur yadro bilan qanday gaplashayotganini ko'rish
+$ strace -c ls /tmp
+% time     seconds  usecs/call     calls    errors syscall
+ 28.3    0.000201           8        25           mmap
+ 15.1    0.000107           7        14           openat
+ ...
+# "calls" ustuni — syscall soni. Sekin dasturda bu ustun ko'pincha javob beradi.
+
+# 2) Protsesslar va thread'lar
+$ ps -eLf | head          # -L = thread'lar bilan
+$ top -H                  # thread darajasida jonli ko'rinish
+
+# 3) Ochiq fayllar va soketlar (FD abstraksiyasi amalda)
+$ lsof -p PID
+$ ss -tnp                 # TCP soketlar va ularning egalari
+
+# 4) Yadro jurnali — apparat va drayver muammolari
+$ dmesg -T | tail -20     # OOM kill, disk xatolari shu yerda ko'rinadi
+
+# 5) Yadro sozlamalari
+$ sysctl -a | grep -E 'somaxconn|file-max|swappiness'</code></pre>
+
+  <h2 id="xatolar-21">Tez-tez qilinadigan xatolar</h2>
+
+  <ul class="mistakes">
+    <li>
+      <b>OS'ni «shunchaki ishlaydigan narsa» deb qarash</b>
+      Ilovangizning kechikishi va sig'imi ko'pincha yadro sozlamalari va syscall naqshlariga bog'liq.
+      <span class="fix">Muammoni tekshirishni <code>strace</code>, <code>/proc</code> va <code>dmesg</code> dan boshlang — taxmin qilishdan emas.</span>
+    </li>
+    <li>
+      <b><code>write()</code> muvaffaqiyatli qaytdi = ma'lumot xavfsiz deb o'ylash</b>
+      Ma'lumot page cache'da; elektr o'chsa yo'qoladi.
+      <span class="fix">Chinakam kafolat kerak bo'lsa <code>fsync()</code> ishlating va uning narxini sig'im hisobiga qo'shing.</span>
+    </li>
+    <li>
+      <b>Konteynerni virtual mashina deb tasavvur qilish</b>
+      Konteyner xost yadrosini bo'lishadi: yadro darajasidagi muammo hamma konteynerga tegadi.
+      <span class="fix">Konteyner — izolyatsiyalangan protsess. Xavfsizlik chegarasi kerak bo'lsa, bu yetarli emasligini bilib ish tuting.</span>
+    </li>
+    <li>
+      <b>Ko'p syscall qilishdan qo'rqmaslik</b>
+      Har bir baytni alohida <code>write()</code> bilan yozish — dasturni 10–100 barobar sekinlashtiradi.
+      <span class="fix">Buferlang, <code>writev</code>/<code>sendfile</code> dan foydalaning (2.4-dars).</span>
+    </li>
+    <li>
+      <b>«Yadroni sozlash» ni ko'r-ko'rona internetdan ko'chirish</b>
+      Internetdagi <code>sysctl</code> ro'yxatlari boshqa yuklama uchun yozilgan bo'ladi.
+      <span class="fix">Har bir parametrni nima uchun o'zgartirayotganingizni ayting va o'zgarishdan oldin/keyin o'lchang.</span>
+    </li>
+    <li>
+      <b>Yadro va foydalanuvchi vaqtini ajratmaslik</b>
+      <code>top</code> dagi <code>us</code> (user) va <code>sy</code> (system) ustunlari butunlay boshqa muammolarni bildiradi.
+      <span class="fix">Yuqori <code>sy</code> — syscall/kontekst almashinuvi muammosi; yuqori <code>us</code> — ilova kodi muammosi.</span>
+    </li>
+  </ul>
+
+  <div class="summary">
+    <h2 id="xulosa-21">Xulosa</h2>
+    <ul>
+      <li>OS uchta ishni qiladi: apparatni <strong>abstraksiyaga aylantiradi</strong>, resurslarni <strong>taqsimlaydi</strong>, protsesslarni <strong>himoya qiladi</strong>.</li>
+      <li>Kod ikki dunyoda ishlaydi: user mode (ring 3) va kernel mode (ring 0). Chegarani apparat qo'riqlaydi, undan o'tishning yagona yo'li — tizim chaqiruvi.</li>
+      <li>OS'ni o'rganish — uning bir nechta abstraksiyasini o'rganish: protsess, virtual xotira, fayl, soket, signal.</li>
+      <li>Unix'ning «hamma narsa fayl» g'oyasi bitta interfeys (FD) atrofida butun ekotizim qurdi; <code>/proc</code> esa yadroning o'zini o'qiladigan qildi.</li>
+      <li>Monolit va mikrokernel o'rtasidagi tanlov — tezlik bilan izolyatsiya o'rtasidagi kelishuv; Linux monolit, lekin modul va eBPF bilan kengayadi.</li>
+      <li>Abstraksiya me'yordagi holatni yashiradi, chegaraviy holatni esa yashira olmaydi — <code>write()</code>, <code>malloc()</code> va soket buni yaxshi ko'rsatadi.</li>
+    </ul>
+  </div>
+
+  <div class="done-bar" data-done-bar></div>
+  <nav class="lesson-nav" data-lesson-nav></nav>
+
+</article>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap"><span>2.1 · Operatsion tizim va abstraktsiya</span></div>
+</footer>
+
+<script src="assets/script.js"></script>
+</body>
+</html>

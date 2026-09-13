@@ -36,6 +36,50 @@
       "fayl": "1.3-tizimdagi-real-rollar.html",
       "tartib": 3,
       "davomiyligi": "30 daqiqa"
+    },
+    {
+      "asosiyId": 2,
+      "asosiyNomi": "Operatsion tizim va abstraktsiya",
+      "asosiyTavsif": "OS apparatni yashirib, uning o'rniga protsess, virtual xotira va fayl kabi abstraksiyalarni beradi. Shu abstraksiyalar qanday qurilgan va har biri qancha turishini o'rganamiz.",
+      "ichkiId": "2.1",
+      "ichkiNomi": "OS: asosiy tushunchalar",
+      "ichkiTavsif": "Yadro nima uchun bor, user/kernel rejimlari, monolit va mikrokernel, «hamma narsa fayl» falsafasi va OS beradigan abstraksiyalar xaritasi.",
+      "fayl": "2.1-os-asosiy-tushunchalar.html",
+      "tartib": 1,
+      "davomiyligi": "30 daqiqa"
+    },
+    {
+      "asosiyId": 2,
+      "asosiyNomi": "Operatsion tizim va abstraktsiya",
+      "asosiyTavsif": "OS apparatni yashirib, uning o'rniga protsess, virtual xotira va fayl kabi abstraksiyalarni beradi. Shu abstraksiyalar qanday qurilgan va har biri qancha turishini o'rganamiz.",
+      "ichkiId": "2.2",
+      "ichkiNomi": "Protsess va Thread",
+      "ichkiTavsif": "task_struct, protsess holatlari, fork/exec/wait, zombie va orphan, thread nima bilan farq qiladi, scheduler va konkurentlik modellari.",
+      "fayl": "2.2-protsess-va-thread.html",
+      "tartib": 2,
+      "davomiyligi": "35 daqiqa"
+    },
+    {
+      "asosiyId": 2,
+      "asosiyNomi": "Operatsion tizim va abstraktsiya",
+      "asosiyTavsif": "OS apparatni yashirib, uning o'rniga protsess, virtual xotira va fayl kabi abstraksiyalarni beradi. Shu abstraksiyalar qanday qurilgan va har biri qancha turishini o'rganamiz.",
+      "ichkiId": "2.3",
+      "ichkiNomi": "Virtual xotira va izolyatsiya",
+      "ichkiTavsif": "Sahifa jadvali va TLB, page fault, demand paging va COW, address space xaritasi, mmap, swap, OOM killer, RSS/VSZ va konteyner limitlari.",
+      "fayl": "2.3-virtual-xotira-va-izolyatsiya.html",
+      "tartib": 3,
+      "davomiyligi": "35 daqiqa"
+    },
+    {
+      "asosiyId": 2,
+      "asosiyNomi": "Operatsion tizim va abstraktsiya",
+      "asosiyTavsif": "OS apparatni yashirib, uning o'rniga protsess, virtual xotira va fayl kabi abstraksiyalarni beradi. Shu abstraksiyalar qanday qurilgan va har biri qancha turishini o'rganamiz.",
+      "ichkiId": "2.4",
+      "ichkiNomi": "Tizim chaqiruvi (System Calls)",
+      "ichkiTavsif": "syscall mexanikasi va narxi, libc wrapper va vDSO, buferlash, zero-copy, io_uring, strace bilan tahlil va seccomp orqali cheklash.",
+      "fayl": "2.4-tizim-chaqiruvi.html",
+      "tartib": 4,
+      "davomiyligi": "30 daqiqa"
     }
   ]
 }

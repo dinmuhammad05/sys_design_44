@@ -328,7 +328,7 @@
       } else {
         var end = el("a", "lesson-nav__link lesson-nav__link--next");
         end.href = "index.html";
-        end.appendChild(el("span", "lesson-nav__dir", "Bu — oxirgi mavjud dars"));
+        end.appendChild(el("span", "lesson-nav__dir", "Bu — oxirgi mavjud dars · davomi tez orada"));
         end.appendChild(el("span", "lesson-nav__name", "Kurs sahifasiga qaytish →"));
         footNav.appendChild(end);
       }

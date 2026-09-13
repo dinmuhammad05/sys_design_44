@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="uz" data-dars="2.2">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2.2 Protsess va Thread</title>
+<meta name="description" content="task_struct, protsess holatlari, fork/exec/wait, zombie va orphan, thread va protsess farqi, scheduler va konkurentlik modellari.">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230d1117'/><rect x='8' y='8' width='16' height='16' rx='3' fill='none' stroke='%2358a6ff' stroke-width='2'/><rect x='13' y='13' width='6' height='6' fill='%2358a6ff'/></svg>">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0d1117">
+<meta name="color-scheme" content="dark">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tizim kursi">
+<meta name="mobile-web-app-capable" content="yes">
+</head>
+<body>
+
+<header class="topbar" data-topbar></header>
+
+<main class="wrap">
+<article class="lesson">
+
+  <p class="eyebrow" data-eyebrow>Asosiy mavzu 2 · Operatsion tizim va abstraktsiya</p>
+  <h1>2.2 Protsess va Thread</h1>
+
+  <p class="lead">
+    Protsessor bir vaqtda faqat bitta instruksiya oqimini bajaradi, lekin mashinangizda yuzlab
+    dastur «bir vaqtda» ishlaydi. Bu illuziyani OS ikkita abstraksiya bilan quradi: <strong>protsess</strong>
+    va <strong>thread</strong>. Ular orasidagi farqni yuzaki bilish — server sig'imini noto'g'ri
+    hisoblashning, tushunarsiz xatolarning va tuzatib bo'lmaydigan race condition'larning asosiy sababi.
+    Bu darsda ikkalasini ichidan ko'ramiz.
+  </p>
+
+  <nav class="toc" data-toc></nav>
+
+  <h2 id="protsess-nima">Protsess: ishlab turgan dastur holati</h2>
+
+  <p>
+    <strong>Dastur</strong> — diskdagi passiv fayl (ELF binary): instruksiyalar va boshlang'ich ma'lumot.
+    <strong>Protsess</strong> — o'sha dasturning ishlayotgan nusxasi, ya'ni 1.1-darsdagi ma'noda
+    <em>holat</em>. Bitta <code>/usr/bin/python3</code> faylidan 50 ta protsess ishlashi mumkin va
+    ularning har biri butunlay mustaqil holatga ega bo'ladi.
+  </p>
+
+  <p>Yadro har bir protsess uchun bitta katta tuzilma saqlaydi — Linux'da u <code>task_struct</code>:</p>
+
+<p class="code-label">Protsess holati nimalardan iborat (soddalashtirilgan)</p>
+<pre><code>struct task_struct {
+    pid_t              pid, tgid;      // protsess va thread guruhi ID'si
+    long               state;          // R / S / D / Z / T
+    struct mm_struct  *mm;             // manzil fazosi: sahifa jadvali (2.3-dars)
+    struct files_struct *files;        // ochiq file descriptor'lar jadvali
+    struct signal_struct *signal;      // signal ishlovchilari
+    struct cred       *cred;           // uid, gid, capabilities
+    struct fs_struct  *fs;             // joriy katalog, ildiz katalogi
+    struct sched_entity se;            // scheduler uchun hisob-kitob
+    void              *stack;          // YADRO steki (har bir task uchun alohida)
+    struct task_struct *parent;        // ota protsess
+    struct nsproxy    *nsproxy;        // namespace'lar (konteynerlar shu yerda)
+    ...
+};</code></pre>
+
+  <p>
+    Demak protsess — bu «kod» emas, balki <strong>resurslar to'plami</strong>:
+    manzil fazosi, ochiq FD'lar, huquqlar, joriy katalog, signal sozlamalari va bajarilish konteksti.
+    Bu ro'yxatni yodda tuting — thread bilan farqni aynan shu ro'yxat belgilaydi.
+  </p>
+
+  <h2 id="holatlar">Protsess holatlari: nega dastur ko'pincha «ishlamaydi»</h2>
+
+  <p>
+    Protsess doim ishlayotgan emas. Aslida tipik serverdagi protsesslarning katta qismi
+    <em>uxlab yotadi</em> — 1.1-darsdagi «CPU vaqtning 10% idan kamini ishlaydi» xulosasi
+    aynan shu holatlar orqali ro'yobga chiqadi.
+  </p>
+
+  <figure class="figure">
+    <svg viewBox="0 0 700 330" width="100%" role="img" aria-label="Protsess holatlari diagrammasi">
+      <rect class="svg-box" x="16" y="132" width="100" height="46" rx="6"/>
+      <text class="svg-label svg-label--strong" x="34" y="152">YANGI</text>
+      <text class="svg-label" x="34" y="168">fork()</text>
+
+      <rect class="svg-box svg-box--accent" x="160" y="132" width="140" height="46" rx="6"/>
+      <text class="svg-label svg-label--strong" x="176" y="152">TAYYOR (R)</text>
+      <text class="svg-label" x="176" y="168">navbatda kutadi</text>
+
+      <rect class="svg-box svg-box--accent" x="390" y="132" width="150" height="46" rx="6"/>
+      <text class="svg-label svg-label--strong" x="404" y="152">BAJARILMOQDA</text>
+      <text class="svg-label" x="404" y="168">yadroda (R)</text>
+
+      <rect class="svg-box" x="596" y="132" width="90" height="46" rx="6"/>
+      <text class="svg-label svg-label--strong" x="610" y="152">TUGADI</text>
+      <text class="svg-label" x="610" y="168">Z — zombie</text>
+
+      <rect class="svg-box" x="390" y="246" width="150" height="62" rx="6"/>
+      <text class="svg-label svg-label--strong" x="404" y="266">KUTMOQDA</text>
+      <text class="svg-label" x="404" y="284">S — uzilishi mumkin</text>
+      <text class="svg-label" x="404" y="300">D — uzilmaydigan I/O</text>
+
+      <path class="svg-arrow" d="M116 155 H 156" marker-end="url(#a22)"/>
+
+      <path class="svg-arrow" d="M300 146 H 386" marker-end="url(#a22)"/>
+      <text class="svg-label svg-label--accent" x="306" y="126">scheduler tanladi</text>
+      <path class="svg-arrow" d="M386 166 H 304" marker-end="url(#a22)"/>
+      <text class="svg-label" x="308" y="184">vaqt tugadi (preemption)</text>
+
+      <path class="svg-arrow" d="M540 155 H 592" marker-end="url(#a22)"/>
+      <text class="svg-label" x="546" y="147">exit()</text>
+
+      <path class="svg-arrow" d="M440 178 V 242" marker-end="url(#a22)"/>
+      <path class="svg-arrow" d="M500 242 V 182" marker-end="url(#a22)"/>
+      <text class="svg-label" x="556" y="262">↓ bloklovchi syscall:</text>
+      <text class="svg-label" x="556" y="278">read(), qulf, sleep</text>
+      <text class="svg-label" x="556" y="298">↑ I/O tugadi:</text>
+      <text class="svg-label" x="556" y="314">task uyg'onadi</text>
+
+      <path class="svg-arrow" d="M386 277 H 330 V 184" marker-end="url(#a22)"/>
+      <text class="svg-label" x="176" y="300">uyg'ongach yana navbatga</text>
+
+      <text class="svg-label svg-label--accent" x="16" y="40">Zombie (Z): protsess o'ldi, lekin ota-protsess wait() chaqirmagani uchun</text>
+      <text class="svg-label svg-label--accent" x="16" y="58">jadvaldagi yozuvi saqlanib turibdi</text>
+      <text class="svg-label" x="16" y="86">D holatidagi protsessni kill -9 ham to'xtata olmaydi —</text>
+      <text class="svg-label" x="16" y="102">u disk yoki tarmoq fayl tizimining javobini kutyapti</text>
+
+      <defs>
+        <marker id="a22" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+          <path d="M0,0 L7,3.5 L0,7 z" fill="#2a4d7a"/>
+        </marker>
+      </defs>
+    </svg>
+    <figcaption>6-sxema. Protsess holatlari. <code>ps</code> ustunidagi bir harfli kodlar aynan shular.</figcaption>
+  </figure>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Kod</th><th>Ma'nosi</th><th>Nimani bildiradi</th></tr></thead>
+    <tbody>
+      <tr><td class="num">R</td><td>running / runnable</td><td>ishlayapti yoki navbatda. R'lar soni yadrolardan ko'p bo'lsa — CPU to'yingan (1.2-dars)</td></tr>
+      <tr><td class="num">S</td><td>interruptible sleep</td><td>normal holat: tarmoq, taymer yoki qulfni kutyapti. Signal bilan uyg'otiladi</td></tr>
+      <tr><td class="num">D</td><td>uninterruptible sleep</td><td><strong>ogohlantiruvchi belgi</strong>: odatda disk/NFS kutilyapti. <code>kill -9</code> ham ishlamaydi</td></tr>
+      <tr><td class="num">Z</td><td>zombie</td><td>tugagan, lekin ota <code>wait()</code> qilmagan. Faqat jadvaldagi yozuv qolgan</td></tr>
+      <tr><td class="num">T</td><td>stopped</td><td>SIGSTOP yoki debugger to'xtatgan</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note note--warn">
+    <span class="note__title">D holati — alohida e'tibor</span>
+    <p>
+      Ko'p <code>D</code> holatidagi protsess = disk yoki tarmoq fayl tizimi javob bermayapti.
+      Bu paytda yuklama o'rtachasi (<code>load average</code>) keskin oshadi, lekin CPU bo'sh turadi —
+      chunki Linux'da load average <em>faqat</em> R emas, <strong>D holatidagi protsesslarni ham</strong>
+      hisoblaydi. «Load 40, CPU 5%» degan holat aynan shundan kelib chiqadi va uni CPU muammosi deb
+      tushunish klassik xato.
+    </p>
+  </div>
+
+  <h2 id="fork-exec">Protsess qanday tug'iladi: fork, exec, wait</h2>
+
+  <p>
+    Unix'da yangi protsess «yaratilmaydi» — u <strong>nusxalanadi</strong>. Bu g'alati ko'rinadi,
+    lekin juda kuchli: <code>fork()</code> joriy protsessning deyarli to'liq nusxasini yaratadi,
+    <code>exec()</code> esa o'sha nusxaning ichini yangi dastur bilan almashtiradi.
+  </p>
+
+<p class="code-label">Klassik fork + exec + wait namunasi (shell aynan shunday ishlaydi)</p>
+<pre><code>#include &lt;unistd.h&gt;
+#include &lt;sys/wait.h&gt;
+
+pid_t pid = fork();          // shu yerdan keyin IKKI protsess davom etadi
+
+if (pid &lt; 0) {
+    perror("fork");          // xato: xotira yoki protsess limiti
+} else if (pid == 0) {
+    /* FARZAND: fork() 0 qaytardi */
+    execvp("/usr/bin/grep", (char *[]){"grep", "error", "log.txt", NULL});
+    /* exec muvaffaqiyatli bo'lsa, bu qatorga umuman yetib kelinmaydi:
+       protsessning butun kod va ma'lumot qismi almashtirildi */
+    _exit(127);              // faqat exec xato bo'lsa bajariladi
+} else {
+    /* OTA: fork() farzandning PID'ini qaytardi */
+    int status;
+    waitpid(pid, &amp;status, 0);        // farzand tugashini kutamiz
+    if (WIFEXITED(status))
+        printf("farzand %d kodi bilan tugadi\n", WEXITSTATUS(status));
+}</code></pre>
+
+  <p>Bu uch chaqiruv butun Unix protsess modelini tashkil qiladi:</p>
+
+  <ul>
+    <li><strong><code>fork()</code></strong> — manzil fazosi, FD jadvali va huquqlar nusxalanadi.
+        Farzand <code>0</code> oladi, ota — farzand PID'ini.</li>
+    <li><strong><code>exec()</code></strong> — joriy protsess ichidagi dasturni almashtiradi.
+        PID <em>o'zgarmaydi</em>, ochiq FD'lar esa (odatda) saqlanadi — quvurlar shuning uchun ishlaydi.</li>
+    <li><strong><code>wait()</code></strong> — farzand tugaganini kutadi va uning chiqish kodini oladi.
+        Shu chaqiruvdan keyingina yadro farzand yozuvini butunlay o'chiradi.</li>
+  </ul>
+
+  <h3>Butun xotirani nusxalash sekin emasmi?</h3>
+  <p>
+    Yo'q — chunki hech narsa nusxalanmaydi. <code>fork()</code> <span class="term">copy-on-write</span>
+    (COW) ishlatadi: ota va farzand <em>bir xil fizik sahifalarga</em> ishora qiladi, sahifalar esa
+    «faqat o'qish» deb belgilanadi. Kimdir yozmoqchi bo'lgandagina o'sha bitta sahifa nusxalanadi.
+    Shuning uchun 4 GB xotira ishlatadigan protsessni <code>fork()</code> qilish millisekundlar oladi
+    (mexanizmni 2.3-darsda ochamiz).
+  </p>
+
+  <h3>Zombie va orphan: ikkita klassik holat</h3>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th></th><th>Zombie</th><th>Orphan (yetim)</th></tr></thead>
+    <tbody>
+      <tr><td>Nima bo'ldi</td><td>farzand o'ldi, ota <code>wait()</code> qilmadi</td><td>ota o'ldi, farzand ishlayapti</td></tr>
+      <tr><td>Oqibati</td><td>protsess jadvalida yozuv qoladi; ko'payib ketsa PID tugaydi</td><td>farzandni PID 1 «asrab oladi» va u <code>wait()</code> qiladi</td></tr>
+      <tr><td>Xavfi</td><td>sekin-asta protsess limitini yeydi</td><td>odatda xavfsiz, lekin nazoratsiz ish qoladi</td></tr>
+      <tr><td>Yechimi</td><td>har bir farzandga <code>wait()</code>, yoki <code>SIGCHLD</code> ishlovchisi</td><td>init/systemd hal qiladi</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note note--danger">
+    <span class="note__title">Docker'dagi PID 1 muammosi</span>
+    <p>
+      Konteynerda sizning ilovangiz ko'pincha PID 1 bo'lib ishga tushadi. Lekin PID 1 ning ikkita
+      maxsus vazifasi bor: yetim protsesslarni asrab olish va ularga <code>wait()</code> qilish,
+      hamda signallarni to'g'ri tarqatish. Oddiy ilova buni qilmaydi — natijada konteyner ichida
+      <strong>zombie'lar to'planadi</strong> va <code>docker stop</code> paytida <code>SIGTERM</code>
+      ilovaga yetib bormaydi (konteyner 10 soniyadan keyin majburan o'ldiriladi).
+      Yechim: <code>docker run --init</code> yoki <code>tini</code> kabi kichik init ishlatish.
+    </p>
+  </div>
+
+  <h2 id="thread">Thread: bitta uyda bir nechta ishchi</h2>
+
+  <p>
+    Protsess qimmat: alohida manzil fazosi, alohida FD jadvali. Ammo ko'pincha bizga
+    <em>bir xil ma'lumot ustida ishlaydigan</em> bir nechta bajarilish oqimi kerak bo'ladi.
+    Shu yerda <strong>thread</strong> paydo bo'ladi: u protsess bilan deyarli hamma narsani bo'lishadi,
+    faqat bajarilish uchun zarur minimumga alohida egalik qiladi.
+  </p>
+
+  <figure class="figure">
+    <svg viewBox="0 0 700 280" width="100%" role="img" aria-label="Protsess ichidagi thread'lar va umumiy xotira">
+      <rect class="svg-box svg-box--accent" x="20" y="20" width="660" height="244" rx="10"/>
+      <text class="svg-label svg-label--accent" x="36" y="42">PROTSESS (PID 4210) — bitta manzil fazosi</text>
+
+      <rect class="svg-box" x="40" y="60" width="180" height="150" rx="6"/>
+      <text class="svg-label svg-label--strong" x="54" y="82">UMUMIY (bo'lishiladi)</text>
+      <text class="svg-label" x="54" y="104">▸ kod (text segmenti)</text>
+      <text class="svg-label" x="54" y="122">▸ heap — malloc/new</text>
+      <text class="svg-label" x="54" y="140">▸ global o'zgaruvchilar</text>
+      <text class="svg-label" x="54" y="158">▸ ochiq FD'lar</text>
+      <text class="svg-label" x="54" y="176">▸ joriy katalog, uid</text>
+      <text class="svg-label" x="54" y="194">▸ sahifa jadvali</text>
+
+      <rect class="svg-box" x="240" y="60" width="140" height="150" rx="6"/>
+      <text class="svg-label svg-label--strong" x="254" y="82">Thread 1 · 4210</text>
+      <text class="svg-label" x="254" y="106">o'z steki (8 MB)</text>
+      <text class="svg-label" x="254" y="128">registrlar, PC</text>
+      <text class="svg-label" x="254" y="150">TLS o'zgaruvchilar</text>
+      <text class="svg-label" x="254" y="172">prioritet, holat</text>
+      <text class="svg-label svg-label--accent" x="254" y="198">main()</text>
+
+      <rect class="svg-box" x="392" y="60" width="140" height="150" rx="6"/>
+      <text class="svg-label svg-label--strong" x="406" y="82">Thread 2 · 4213</text>
+      <text class="svg-label" x="406" y="106">o'z steki</text>
+      <text class="svg-label" x="406" y="128">registrlar, PC</text>
+      <text class="svg-label" x="406" y="150">TLS</text>
+      <text class="svg-label svg-label--accent" x="406" y="198">worker()</text>
+
+      <rect class="svg-box" x="544" y="60" width="140" height="150" rx="6"/>
+      <text class="svg-label svg-label--strong" x="558" y="82">Thread 3 · 4214</text>
+      <text class="svg-label" x="558" y="106">o'z steki</text>
+      <text class="svg-label" x="558" y="128">registrlar, PC</text>
+      <text class="svg-label" x="558" y="150">TLS</text>
+      <text class="svg-label svg-label--accent" x="558" y="198">worker()</text>
+
+      <path class="svg-arrow" d="M130 210 V 232 H 614"/>
+      <path class="svg-arrow" d="M310 232 V 214" marker-end="url(#a22b)"/>
+      <path class="svg-arrow" d="M462 232 V 214" marker-end="url(#a22b)"/>
+      <path class="svg-arrow" d="M614 232 V 214" marker-end="url(#a22b)"/>
+
+      <text class="svg-label svg-label--accent" x="40" y="256">Bittasi umumiy holatni o'zgartirsa — hammasi darhol ko'radi: bu ham kuch, ham xavf</text>
+
+      <defs>
+        <marker id="a22b" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+          <path d="M0,0 L7,3.5 L0,7 z" fill="#2a4d7a"/>
+        </marker>
+      </defs>
+    </svg>
+    <figcaption>7-sxema. Thread'lar heap va FD'larni bo'lishadi, lekin har birining o'z steki bor.
+    Bu — kuch va xavfning bitta manbai.</figcaption>
+  </figure>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th></th><th>Protsess</th><th>Thread</th></tr></thead>
+    <tbody>
+      <tr><td>Manzil fazosi</td><td>alohida</td><td>umumiy</td></tr>
+      <tr><td>Yaratish narxi</td><td>~50–500 µs (COW bilan)</td><td>~10–30 µs</td></tr>
+      <tr><td>Kontekst almashinuvi</td><td>qimmatroq (sahifa jadvali + TLB)</td><td>arzonroq (TLB saqlanadi)</td></tr>
+      <tr><td>Ma'lumot almashish</td><td>IPC: quvur, soket, shared memory</td><td>oddiy ko'rsatkich — tekin</td></tr>
+      <tr><td>Xato oqibati</td><td>faqat o'zi o'ladi</td><td><strong>butun protsess o'ladi</strong></td></tr>
+      <tr><td>Xotira sarfi</td><td>alohida sahifalar</td><td>asosan stek (Linux'da odatda 8 MB virtual)</td></tr>
+      <tr><td>Sinxronizatsiya</td><td>kamdan-kam kerak</td><td>deyarli har doim kerak</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Linux'da thread degan alohida narsa yo'q</h3>
+
+  <p>
+    Bu muhim tafsilot: Linux yadrosi uchun thread ham, protsess ham bir xil —
+    <code>task_struct</code>. Farq faqat <strong>nima bo'lishilgani</strong>da.
+    Ikkalasi ham <code>clone()</code> chaqiruvi bilan yaratiladi, faqat bayroqlar boshqacha:
+  </p>
+
+<p class="code-label">fork() va pthread_create() — bitta syscall, boshqa bayroqlar</p>
+<pre><code>// fork() aslida shunga yaqin:
+clone(SIGCHLD, ...);                  // hech narsa bo'lishilmaydi → yangi protsess
+
+// pthread_create() aslida shunga yaqin:
+clone(CLONE_VM       |   // manzil fazosi UMUMIY
+      CLONE_FS       |   // joriy katalog umumiy
+      CLONE_FILES    |   // FD jadvali umumiy
+      CLONE_SIGHAND  |   // signal ishlovchilari umumiy
+      CLONE_THREAD,  ...);  // bitta thread guruhiga tegishli
+
+// Natijada:
+//   ps       → bitta protsess ko'rsatadi (tgid bo'yicha guruhlanadi)
+//   ps -eLf  → barcha thread'larni alohida ko'rsatadi (TID bo'yicha)
+//   /proc/PID/task/  → har bir thread uchun alohida katalog</code></pre>
+
+  <p>
+    Shuning uchun Linux'da «thread arzon» degani — «u kamroq narsa nusxalaydi» degani.
+    Konteyner ham shu mexanizmning davomi: <code>CLONE_NEWPID</code>, <code>CLONE_NEWNET</code>
+    kabi bayroqlar bilan <em>ko'proq</em> narsa ajratiladi.
+  </p>
+
+  <h2 id="scheduler">Scheduler: kim, qachon va qancha ishlaydi</h2>
+
+  <p>
+    Tayyor (R) holatdagi task'lar yadrolardan ko'p bo'lganda kimdir tanlashi kerak. Buni
+    <strong>scheduler</strong> qiladi va uning ikkita maqsadi bir-biriga zid: <em>adolat</em>
+    (hamma ish oladi) va <em>samaradorlik</em> (kamroq almashinuv, ko'proq foydali ish).
+  </p>
+
+  <h3>Preemptiv ko'p vazifalilik</h3>
+  <p>
+    Zamonaviy OS <strong>majburiy</strong> almashtiradi: taymer uzilishi (odatda har 1–4 ms)
+    yadroga boshqaruvni beradi va scheduler qaror qiladi — shu task davom etsinmi yoki boshqasi.
+    Shuning uchun cheksiz sikl yozgan dastur mashinani qotirib qo'ymaydi.
+  </p>
+
+  <h3>Task qachon protsessorni tark etadi</h3>
+  <ul>
+    <li><strong>Ixtiyoriy:</strong> bloklovchi syscall chaqirdi (<code>read</code>, <code>sleep</code>, qulf kutish) — S holatiga o'tadi.</li>
+    <li><strong>Majburiy:</strong> vaqt ulushi tugadi (preemption) yoki yuqori prioritetli task uyg'ondi.</li>
+    <li><strong>Tugadi:</strong> <code>exit()</code>.</li>
+  </ul>
+
+  <h3>Adolat qanday o'lchanadi</h3>
+  <p>
+    Linux uzoq vaqt <span class="term">CFS</span> (Completely Fair Scheduler) ishlatdi, 6.6 versiyadan
+    <span class="term">EEVDF</span> ga o'tildi. Ikkalasining g'oyasi bir xil: har bir task qancha
+    protsessor vaqti «olishi kerak» edi va qanchasini haqiqatan oldi — shu qarzdorlik hisoblanadi
+    va eng «kam olgan» task tanlanadi. <code>nice</code> qiymati shu hisobga og'irlik beradi:
+  </p>
+
+<pre><code>$ nice -n 10 ./hisobot.sh     # past prioritet: boshqalarga xalaqit bermasin
+$ renice -n -5 -p 4210        # yuqori prioritet (root kerak)
+
+# CPU'ni qat'iy cheklash (konteynerlarda shu ishlatiladi):
+$ systemd-run --scope -p CPUQuota=50% ./worker    # cgroups orqali
+
+# Qaysi yadroda ishlashini bog'lash (cache lokalligi uchun — 1.1-dars)
+$ taskset -c 2,3 ./low_latency_app</code></pre>
+
+  <h3>CPU-bound va I/O-bound: ikki xil fuqaro</h3>
+  <p>
+    Scheduler uchun ikkita tur muhim. <strong>I/O-bound</strong> task ozgina ishlaydi va darhol
+    uxlaydi (veb-server, DB mijozi) — u tez-tez uyg'onadi va unga tez javob berish kerak.
+    <strong>CPU-bound</strong> task uzoq ishlaydi (video kodlash, hisoblash) — unga uzunroq ulush
+    berish samaraliroq, chunki har bir almashinuv cache'ni buzadi. Shuning uchun ularni
+    <em>bitta mashinada aralashtirmaslik</em> — 1.3-darsdagi «rollarni ajratish» qoidasining sababi.
+  </p>
+
+  <div class="note">
+    <span class="note__title">Kontekst almashinuvining haqiqiy narxi</span>
+    <p>
+      To'g'ridan-to'g'ri narxi ~1–5 µs. Lekin asosiy zarar ko'rinmas: yangi task cache va TLB'ni
+      o'zinikiga almashtiradi, eski task qaytganda ularni qaytadan isitishi kerak. Shuning uchun
+      10 000 ta thread yaratish ishni tezlashtirmaydi — mashina foydali ish o'rniga almashtirish bilan
+      band bo'ladi. <code>vmstat 1</code> dagi <code>cs</code> ustuni shu almashinuvlar sonini ko'rsatadi.
+    </p>
+  </div>
+
+  <h2 id="konkurentlik">Umumiy xotira — kuch va xavf</h2>
+
+  <p>
+    Thread'lar heap'ni bo'lishgani uchun ma'lumot almashish tekin. Xuddi shu sabab bilan
+    ular bir-birining ma'lumotini buzishi ham tekin. Klassik misol:
+  </p>
+
+<p class="code-label">Bir qatorlik kod — uchta amal</p>
+<pre><code>counter++;      // yuqori darajada bitta amal ko'rinadi, aslida uchta:
+                //   1) LOAD  counter -&gt; registr
+                //   2) ADD   registr, 1
+                //   3) STORE registr -&gt; counter
+
+// Ikki thread aralashib ketsa:
+// T1: LOAD (5)              T2: LOAD (5)
+// T1: ADD  -&gt; 6             T2: ADD  -&gt; 6
+// T1: STORE 6               T2: STORE 6      → natija 6, 7 bo'lishi kerak edi
+
+// Yechim 1: qulf
+pthread_mutex_lock(&amp;m);  counter++;  pthread_mutex_unlock(&amp;m);
+
+// Yechim 2: atomik amal (qulfsiz, tezroq)
+__atomic_fetch_add(&amp;counter, 1, __ATOMIC_RELAXED);</code></pre>
+
+  <p>
+    Bu xatoning yomon tomoni — u <strong>doim ko'rinmaydi</strong>. Sinovda 1000 martadan 999 tasi to'g'ri
+    ishlaydi, ishlab chiqarishda esa yuklama ostida buziladi. Shuning uchun konkurent kodni
+    «sinab ko'rib ishonch hosil qilish» ishlamaydi — uni <em>to'g'ri loyihalash</em> kerak.
+  </p>
+
+  <h3>Qulflar bilan bog'liq uchta muammo</h3>
+  <ul>
+    <li><strong>Deadlock:</strong> T1 A qulfini ushlab B ni kutadi, T2 esa B ni ushlab A ni kutadi.
+        Oldini olish: qulflarni har doim <em>bir xil tartibda</em> olish.</li>
+    <li><strong>Raqobat (contention):</strong> hamma bitta qulfni kutsa, 32 yadroli mashina bitta
+        yadroga aylanadi — bu 1.2-darsdagi <code>ρ → 1</code> holatining o'zi.</li>
+    <li><strong>Ushlab uxlash:</strong> qulf ichida <code>read()</code> yoki tarmoq chaqiruvi qilish.
+        Qulfni ushlab turgan task uxlasa, uni kutayotganlarning hammasi to'xtaydi.</li>
+  </ul>
+
+  <div class="note note--warn">
+    <span class="note__title">Amaliy qoida</span>
+    <p>
+      Qulf ichidagi kod imkon qadar <strong>qisqa va bloklanmaydigan</strong> bo'lsin.
+      Eng yaxshi qulf — umuman kerak bo'lmagani: ma'lumotni thread'lar orasida bo'lishish o'rniga,
+      har biriga o'z nusxasini bering yoki xabar orqali uzating (Go kanallari, Erlang aktyorlari shu g'oyada).
+    </p>
+  </div>
+
+  <h2 id="modellar">Konkurentlik modellari: qaysi birini tanlash</h2>
+
+  <p>
+    1.2-darsdagi Little qonunini eslang: <code>L = λ × W</code>. Bir vaqtda 2000 ta so'rovni
+    xizmat qilish kerak bo'lsa, «bir vaqtda» ni nima bilan ta'minlash masalasi turadi.
+    Uchta asosiy javob bor:
+  </p>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Model</th><th>Qanday ishlaydi</th><th>Kuchli tomoni</th><th>Cheklovi</th><th>Misol</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Protsess-per-so'rov</strong></td>
+        <td>har bir so'rovga alohida protsess</td>
+        <td>to'liq izolyatsiya, xato tarqalmaydi</td>
+        <td>eng qimmat; minglab so'rov uchun yaramaydi</td>
+        <td>eski CGI, PostgreSQL ulanishlari</td>
+      </tr>
+      <tr>
+        <td><strong>Thread-per-so'rov</strong></td>
+        <td>har bir so'rovga thread; bloklovchi I/O</td>
+        <td>kod oddiy va ketma-ket o'qiladi</td>
+        <td>har bir thread stek va almashinuv talab qiladi; ~10k dan keyin qiyin</td>
+        <td>klassik Java/Tomcat, Gunicorn</td>
+      </tr>
+      <tr>
+        <td><strong>Event loop</strong></td>
+        <td>bitta thread <code>epoll</code> bilan minglab soketni kuzatadi</td>
+        <td>juda arzon: xotira ham, almashinuv ham kam</td>
+        <td>bitta bloklovchi amal butun loop'ni to'xtatadi</td>
+        <td>nginx, Node.js, Redis</td>
+      </tr>
+      <tr>
+        <td><strong>Yengil oqimlar (M:N)</strong></td>
+        <td>runtime ko'plab «goroutine» ni bir nechta OS thread'iga joylaydi</td>
+        <td>oddiy ketma-ket kod + event loop tejamkorligi</td>
+        <td>runtime murakkab; FFI va bloklovchi kod ehtiyot talab qiladi</td>
+        <td>Go, Erlang, Java virtual threads</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>
+    Diqqat: bu modellar bir-biridan «yaxshiroq» emas. Ular <strong>bir xil chegara bilan turlicha
+    kurashadi</strong> — thread'ning narxi va bloklanishning narxi bilan. Qaysi birini tanlashingiz
+    ishingiz CPU-bound yoki I/O-bound ekaniga bog'liq.
+  </p>
+
+<p class="code-label">Thread pool hajmini hisoblash (1.2-darsdagi Little qonuni)</p>
+<pre><code>CPU-bound ish:   thread ≈ yadrolar soni        (ko'proq qilish faqat almashinuv qo'shadi)
+
+I/O-bound ish:   thread ≈ λ × W
+                 λ = 2000 RPS, W = 50 ms  →  100 thread + zaxira ≈ 130
+
+Aralash ish:     thread ≈ yadro × (1 + kutish_vaqti / ish_vaqti)
+                 8 yadro, 40 ms kutish, 10 ms ish  →  8 × 5 = 40 thread
+
+# Va eng muhimi — pastdagi chegarani unutmang:
+# 40 thread × 8 instance = 320 DB ulanishi. Postgres max_connections = 200 → avariya.</code></pre>
+
+  <h2 id="amaliyot-22">Amaliyot: protsess va thread'larni kuzatish</h2>
+
+<pre><code># Thread'lar bilan ko'rish
+$ ps -eLf | awk '$6 &gt; 1'        # NLWP ustuni — thread soni
+$ top -H -p 4210                # thread darajasida CPU
+$ ls /proc/4210/task/ | wc -l   # protsessdagi thread soni
+
+# Protsess nima kutyapti (D holatida qotgan bo'lsa)
+$ cat /proc/4210/stack          # yadro steki (root kerak)
+$ cat /proc/4210/wchan          # qaysi yadro funksiyasida uxlayapti
+$ cat /proc/4210/status | grep -E 'State|Threads|voluntary'
+# voluntary_ctxt_switches   — o'zi uxlagan (I/O kutgan)
+# nonvoluntary_ctxt_switches — majburan to'xtatilgan (CPU yetishmayapti!)
+
+# Tizim bo'ylab almashinuvlar va navbat
+$ vmstat 1
+ r  b   swpd  free  ...  cs  us sy id wa
+ 9  0      0  2.1G      12043  70 12 15  3
+# r = tayyor task'lar (yadrodan ko'p bo'lsa — CPU to'yingan)
+# b = D holatidagilar (disk kutilyapti)
+# cs = sekundiga kontekst almashinuvi
+
+# Protsess daraxti — kim kimni tug'dirgan
+$ pstree -p 1 | head</code></pre>
+
+  <div class="note note--ok">
+    <span class="note__title">Bitta ko'rsatkich — bitta xulosa</span>
+    <p>
+      <code>nonvoluntary_ctxt_switches</code> tez o'sayotgan bo'lsa, protsessingiz CPU uchun
+      kurashyapti — thread'lar sonini kamaytirish yoki yadro qo'shish kerak. Aksincha,
+      <code>voluntary</code> ko'p bo'lsa — protsess ko'p kutyapti, ya'ni muammo CPU'da emas,
+      I/O yoki qulfda.
+    </p>
+  </div>
+
+  <h2 id="xatolar-22">Tez-tez qilinadigan xatolar</h2>
+
+  <ul class="mistakes">
+    <li>
+      <b>Thread sonini «ko'proq — yaxshiroq» deb oshirish</b>
+      Har bir ortiqcha thread stek, almashinuv va cache ifloslanishi qo'shadi.
+      <span class="fix">Little qonuni bilan hisoblang, keyin o'lchab tasdiqlang; pool'ni chegaralang.</span>
+    </li>
+    <li>
+      <b>Load average'ni CPU yuklamasi deb tushunish</b>
+      Linux'da u D holatidagi (disk kutayotgan) protsesslarni ham sanaydi.
+      <span class="fix">Load bilan birga <code>vmstat</code> dagi <code>r</code>, <code>b</code> va <code>wa</code> ustunlariga qarang.</span>
+    </li>
+    <li>
+      <b>Farzand protsesslarga <code>wait()</code> qilmaslik</b>
+      Zombie'lar to'planadi, konteynerlarda esa <code>SIGTERM</code> ham noto'g'ri tarqaladi.
+      <span class="fix"><code>SIGCHLD</code> ni ishlang yoki konteynerda <code>--init</code> / <code>tini</code> ishlating.</span>
+    </li>
+    <li>
+      <b>Thread'li dasturda <code>fork()</code> qilish</b>
+      Farzandda faqat bitta thread qoladi, lekin qulflar boshqa thread ushlab qolgan holatda nusxalanadi — natija deadlock.
+      <span class="fix"><code>fork()</code> dan keyin darhol <code>exec()</code> qiling yoki <code>posix_spawn()</code> ishlating.</span>
+    </li>
+    <li>
+      <b>Race condition'ni testlar bilan «tekshirish»</b>
+      U yuklama ostida, boshqa mashinada, boshqa vaqtda paydo bo'ladi.
+      <span class="fix">Umumiy holatni kamaytiring; <code>-fsanitize=thread</code>, <code>go test -race</code> kabi vositalarni ishlating.</span>
+    </li>
+    <li>
+      <b>Qulf ichida bloklovchi chaqiruv qilish</b>
+      Qulfni ushlab uxlagan thread butun navbatni to'xtatadi.
+      <span class="fix">Qulf ostida faqat xotira bilan ishlang; I/O ni qulfdan tashqariga chiqaring.</span>
+    </li>
+    <li>
+      <b>Event loop ichida og'ir hisoblash bajarish</b>
+      Node.js yoki Redis'da bitta sekin amal <em>barcha</em> mijozlarni to'xtatadi.
+      <span class="fix">Og'ir ishni worker thread yoki alohida protsessga bering (1.3-darsdagi worker roli).</span>
+    </li>
+  </ul>
+
+  <div class="summary">
+    <h2 id="xulosa-22">Xulosa</h2>
+    <ul>
+      <li>Protsess — resurslar to'plami (manzil fazosi, FD'lar, huquqlar); thread — shu to'plam ichidagi bajarilish oqimi.</li>
+      <li>Protsess holatlari (R/S/D/Z/T) muammoni tashxislashning eng tez yo'li; <code>D</code> ko'p bo'lsa — disk, load yuqori-yu CPU bo'sh bo'lsa — shu sabab.</li>
+      <li><code>fork()</code> + <code>exec()</code> + <code>wait()</code> — Unix protsess modelining uchta ustuni; COW tufayli fork arzon.</li>
+      <li>Linux uchun thread ham task — farq faqat <code>clone()</code> bayroqlarida, ya'ni nima bo'lishilganida.</li>
+      <li>Scheduler adolat bilan samaradorlikni muvozanatlaydi; har bir almashinuv cache'ni sovutadi, shuning uchun ortiqcha thread zararli.</li>
+      <li>Umumiy xotira tekin aloqa beradi, lekin race condition va deadlock xavfini ham beradi — qulf qisqa va bloklanmaydigan bo'lsin.</li>
+      <li>Konkurentlik modeli (thread-per-request, event loop, M:N) — bir xil chegara bilan kurashishning turli usullari; tanlov ish turiga bog'liq.</li>
+    </ul>
+  </div>
+
+  <div class="done-bar" data-done-bar></div>
+  <nav class="lesson-nav" data-lesson-nav></nav>
+
+</article>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap"><span>2.2 · Operatsion tizim va abstraktsiya</span></div>
+</footer>
+
+<script src="assets/script.js"></script>
+</body>
+</html>
