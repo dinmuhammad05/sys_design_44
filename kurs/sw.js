@@ -5,7 +5,7 @@
    qo'shilganda bu faylni tahrirlash SHART EMAS — u o'zi keshlanadi.
    ========================================================================== */
 
-const VERSION = "kurs-v2";
+const VERSION = "kurs-v3";
 const CACHE = VERSION;
 
 /* Ilova qobig'i — hamma sahifa uchun kerak bo'ladigan minimal to'plam */

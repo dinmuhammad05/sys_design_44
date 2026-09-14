@@ -90,6 +90,22 @@ python3 -m http.server 8000
 Settings → Pages → Source: `Deploy from a branch`, branch: asosiy branch, papka: `/ (root)`.
 Sayt `https://<user>.github.io/<repo>/` manzilida ochiladi.
 
+## O'qish rejimi va sozlamalar
+
+Har bir dars sahifasi o'quvchi uchun moslashadi (`script.js` + `style.css`, dars HTML'iga tegilmaydi):
+
+- **Bo'limma-bo'lim rejim** (standart) — dars `h2` bo'limlariga ajratiladi va bir vaqtda faqat bittasi
+  ko'rinadi; pastda «Oldingi / Keyingi bo'lim», keng ekranda chapda doimiy bo'limlar ro'yxati
+  (o'qilganlari belgilanadi), mobil'da pastki panel. ← → tugmalari bo'limlar orasida yuradi.
+  Qaysi bo'limda to'xtaganingiz `localStorage` (`kurs.chapters.v1`) da saqlanadi.
+- **«Aa» sozlamalar paneli** (yuqori panelda) — mavzu (Qorong'i / Yorug' / Sepiya), shrift
+  (Sans / Serif), o'lcham (15–23px), matn kengligi (Tor / O'rta / Keng), rejim
+  (Bo'limma-bo'lim / To'liq sahifa). Tanlov `kurs.prefs.v1` kalitida saqlanadi va barcha sahifalarga tegishli.
+- Yuqorida ingichka o'qish progressi; dars sahifalarida blueprint to'r fon o'chirilgan.
+
+Yangi dars qo'shganda bu hech narsani talab qilmaydi — bo'limlar `h2` bo'yicha avtomatik aniqlanadi
+(`.summary` bloki ham alohida bo'lim hisoblanadi).
+
 ## Ilova sifatida o'rnatish (PWA)
 
 Sayt Progressive Web App sifatida ishlaydi: uni telefon yoki kompyuterga o'rnatish mumkin,

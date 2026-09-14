@@ -334,15 +334,440 @@
       }
     }
 
+    /* --- O'qish rejimi (bo'limlar, yon mundarija, sozlamalar tugmasi) --- */
+    setupReader(darsId);
+    placePrefsButton();
+
     /* --- Klaviatura: ← / → bilan darslar orasida yurish --- */
     document.addEventListener("keydown", function (e) {
       if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (readerKey(e.key)) return;               // bo'limlar orasida yurish
       if (e.key === "ArrowLeft" && prev) location.href = prev.fayl;
       if (e.key === "ArrowRight" && next) location.href = next.fayl;
     });
   }
 
+
+
+  /* ======================================================================
+     O'QISH TAJRIBASI
+     - sozlamalar: mavzu (qorong'i/yorug'/sepiya), shrift, o'lcham, kenglik, rejim
+     - bo'limma-bo'lim rejim: dars h2 bo'yicha bo'linadi, bittasi ko'rinadi
+     - yon mundarija (keng ekranda) / pastki panel (mobil)
+     - yuqoridagi o'qish progressi
+     ====================================================================== */
+
+  var PREFS_KEY = "kurs.prefs.v1";
+  var CHAP_KEY  = "kurs.chapters.v1";
+  var DEFAULT_PREFS = { theme: "dark", font: "sans", size: 18, width: "orta", mode: "bolim" };
+  var WIDTHS = { tor: "660px", orta: "760px", keng: "900px" };
+  var prefs = loadPrefs();
+
+  function loadPrefs() {
+    try {
+      var raw = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
+      return Object.assign({}, DEFAULT_PREFS, raw && typeof raw === "object" ? raw : {});
+    } catch (e) { return Object.assign({}, DEFAULT_PREFS); }
+  }
+  function savePrefs() {
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch (e) {}
+  }
+
+  function applyPrefs() {
+    var root = document.documentElement;
+    root.setAttribute("data-theme", prefs.theme);
+    root.setAttribute("data-font", prefs.font);
+    root.setAttribute("data-mode", prefs.mode);
+    root.style.setProperty("--text-size", prefs.size + "px");
+    root.style.setProperty("--measure", WIDTHS[prefs.width] || WIDTHS.orta);
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = prefs.theme === "light" ? "#f6f7f9" : prefs.theme === "sepia" ? "#f3ead8" : "#0d1117";
+    var scheme = document.querySelector('meta[name="color-scheme"]');
+    if (scheme) scheme.content = prefs.theme === "dark" ? "dark" : "light";
+  }
+
+  function setPref(key, value) {
+    prefs[key] = value;
+    savePrefs();
+    applyPrefs();
+    if (key === "mode") applyMode();
+    if (key === "width") layoutSideToc();
+    syncPrefsUI();
+  }
+
+  /* --- Sozlamalar paneli --- */
+  var prefsPanel = null;
+
+  function seg(options, key) {
+    var box = el("div", "seg");
+    options.forEach(function (o) {
+      var b = el("button", null, o[1]);
+      b.type = "button";
+      b.dataset.key = key;
+      b.dataset.val = String(o[0]);
+      b.addEventListener("click", function () { setPref(key, o[0]); });
+      box.appendChild(b);
+    });
+    return box;
+  }
+
+  function row(label, control) {
+    var r = el("div", "prefs__row");
+    r.appendChild(el("span", "prefs__label", label));
+    r.appendChild(control);
+    return r;
+  }
+
+  function buildPrefsPanel() {
+    var panel = el("div", "prefs");
+    panel.hidden = true;
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-label", "O'qish sozlamalari");
+
+    panel.appendChild(row("Mavzu", seg([["dark", "Qorong'i"], ["light", "Yorug'"], ["sepia", "Sepiya"]], "theme")));
+    panel.appendChild(row("Shrift", seg([["sans", "Sans"], ["serif", "Serif"]], "font")));
+
+    var sizeBox = el("div", "seg");
+    var minus = el("button", null, "A−"); minus.type = "button";
+    var val = el("button", null, ""); val.type = "button"; val.disabled = true; val.dataset.role = "size";
+    var plus = el("button", null, "A+"); plus.type = "button";
+    minus.addEventListener("click", function () { setPref("size", Math.max(15, prefs.size - 1)); });
+    plus.addEventListener("click", function () { setPref("size", Math.min(23, prefs.size + 1)); });
+    sizeBox.appendChild(minus); sizeBox.appendChild(val); sizeBox.appendChild(plus);
+    panel.appendChild(row("O'lcham", sizeBox));
+
+    panel.appendChild(row("Kenglik", seg([["tor", "Tor"], ["orta", "O'rta"], ["keng", "Keng"]], "width")));
+
+    if (document.documentElement.hasAttribute("data-dars")) {
+      panel.appendChild(row("Rejim", seg([["bolim", "Bo'limma-bo'lim"], ["tolik", "To'liq sahifa"]], "mode")));
+      panel.appendChild(el("p", "prefs__hint",
+        "Bo'limma-bo'lim rejimida dars kichik qismlarga bo'linadi va ← → tugmalari bo'limlar orasida yuradi."));
+    }
+
+    document.body.appendChild(panel);
+    document.addEventListener("click", function (e) {
+      if (panel.hidden) return;
+      if (panel.contains(e.target) || (e.target.closest && e.target.closest(".btn--prefs"))) return;
+      panel.hidden = true;
+    });
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape") panel.hidden = true; });
+    return panel;
+  }
+
+  function syncPrefsUI() {
+    if (!prefsPanel) return;
+    Array.prototype.forEach.call(prefsPanel.querySelectorAll(".seg button[data-key]"), function (b) {
+      b.classList.toggle("is-on", String(prefs[b.dataset.key]) === b.dataset.val);
+    });
+    var v = prefsPanel.querySelector('[data-role="size"]');
+    if (v) v.textContent = prefs.size + "px";
+  }
+
+  function placePrefsButton() {
+    var nav = topbarNav();
+    if (!nav || nav.querySelector(".btn--prefs")) return;
+    if (!prefsPanel) prefsPanel = buildPrefsPanel();
+    var b = el("button", "btn btn--prefs", "Aa");
+    b.type = "button";
+    b.title = "O'qish sozlamalari: mavzu, shrift, o'lcham, rejim";
+    b.setAttribute("aria-haspopup", "dialog");
+    b.addEventListener("click", function () {
+      prefsPanel.hidden = !prefsPanel.hidden;
+      if (!prefsPanel.hidden) syncPrefsUI();
+    });
+    nav.insertBefore(b, nav.firstChild);
+    syncPrefsUI();
+  }
+
+  /* --- Bo'limlar (chapters) --- */
+  var reader = { id: null, chapters: [], cur: 0, side: null, bar: null, progress: null, spy: null };
+
+  function chapterState() {
+    try { return JSON.parse(localStorage.getItem(CHAP_KEY) || "{}") || {}; } catch (e) { return {}; }
+  }
+  function saveChapterState(cur, seen) {
+    try {
+      var all = chapterState();
+      all[reader.id] = { cur: cur, seen: seen };
+      localStorage.setItem(CHAP_KEY, JSON.stringify(all));
+    } catch (e) {}
+  }
+
+  function headingText(h) {
+    return h ? h.textContent.replace(/^§\d+\s*/, "").trim() : "";
+  }
+
+  function readMinutes(node) {
+    var words = (node.innerText || node.textContent || "").split(/\s+/).length;
+    return Math.max(1, Math.round(words / 170));
+  }
+
+  function setupReader(darsId) {
+    var article = document.querySelector(".lesson");
+    if (!article || article.dataset.readerReady) return;
+    article.dataset.readerReady = "1";
+    reader.id = darsId || location.pathname.split("/").pop();
+
+    // 1) Bolalarni bo'limlarga ajratamiz: har bir h2 (yoki .summary) — yangi bo'lim
+    var kids = Array.prototype.slice.call(article.children);
+    var intro = [], chapters = [], curr = null;
+    kids.forEach(function (node) {
+      var isBoundary = node.tagName === "H2" || (node.classList && node.classList.contains("summary"));
+      if (isBoundary) {
+        curr = { nodes: [node], h2: node.tagName === "H2" ? node : node.querySelector("h2") };
+        chapters.push(curr);
+      } else if (curr) {
+        curr.nodes.push(node);
+      } else {
+        intro.push(node);
+      }
+    });
+    if (chapters.length < 2) return;           // bo'lishga arzimaydi
+    chapters[0].nodes = intro.concat(chapters[0].nodes);
+
+    // 2) DOM: har bir bo'limni <section class="chapter"> ga o'raymiz
+    chapters.forEach(function (ch, i) {
+      var sec = el("section", "chapter");
+      sec.dataset.ch = String(i);
+      article.insertBefore(sec, ch.nodes[0]);
+      ch.nodes.forEach(function (n) { sec.appendChild(n); });
+      ch.el = sec;
+      ch.title = headingText(ch.h2);
+      ch.minutes = readMinutes(sec);
+    });
+    reader.chapters = chapters;
+
+    // 3) Har bir bo'limga ko'rsatkich va oldingi/keyingi tugmalar
+    chapters.forEach(function (ch, i) {
+      var kicker = el("p", "chapter-kicker");
+      kicker.innerHTML = "<b>Bo'lim " + (i + 1) + "/" + chapters.length + "</b> · ≈ " + ch.minutes + " daqiqa";
+      // kirish qismi bo'lsa — h2 dan oldin, aks holda boshiga
+      ch.el.insertBefore(kicker, ch.h2.closest(".summary") || ch.h2);
+
+      var nav = el("div", "chapter-nav");
+      if (i > 0) {
+        var pb = el("button", "chapter-nav__btn");
+        pb.type = "button";
+        pb.appendChild(el("span", "chapter-nav__dir", "← Oldingi bo'lim"));
+        pb.appendChild(el("span", "chapter-nav__name", chapters[i - 1].title));
+        pb.addEventListener("click", function () { showChapter(i - 1, true); });
+        nav.appendChild(pb);
+      }
+      if (i < chapters.length - 1) {
+        var nb = el("button", "chapter-nav__btn chapter-nav__btn--next");
+        nb.type = "button";
+        nb.appendChild(el("span", "chapter-nav__dir", "Keyingi bo'lim →"));
+        nb.appendChild(el("span", "chapter-nav__name", chapters[i + 1].title));
+        nb.addEventListener("click", function () { showChapter(i + 1, true); });
+        nav.appendChild(nb);
+      }
+      // oxirgi bo'limda dars navigatsiyasi bor — bo'lim tugmalarini undan oldin qo'yamiz
+      var before = ch.el.querySelector(".done-bar");
+      if (before) ch.el.insertBefore(nav, before); else ch.el.appendChild(nav);
+    });
+
+    // 4) Yon mundarija, mobil panel, progress
+    buildSideToc();
+    buildReaderBar();
+    buildProgress();
+
+    // 5) Boshlang'ich bo'lim: hash → saqlangan holat → 0
+    var st = chapterState()[reader.id] || {};
+    var start = typeof st.cur === "number" ? st.cur : 0;
+    var target = location.hash && document.getElementById(location.hash.slice(1));
+    if (target) { var sec = target.closest(".chapter"); if (sec) start = +sec.dataset.ch; }
+    reader.cur = Math.min(Math.max(start, 0), chapters.length - 1);
+
+    applyMode();
+
+    window.addEventListener("hashchange", function () {
+      var t = location.hash && document.getElementById(location.hash.slice(1));
+      if (!t) return;
+      var sec = t.closest(".chapter");
+      if (sec && prefs.mode === "bolim" && +sec.dataset.ch !== reader.cur) {
+        showChapter(+sec.dataset.ch, false);
+        t.scrollIntoView({ block: "start" });
+      }
+    });
+    window.addEventListener("resize", layoutSideToc);
+  }
+
+  function markSeen(i) {
+    var st = chapterState()[reader.id] || {};
+    var seen = Array.isArray(st.seen) ? st.seen.slice() : [];
+    if (seen.indexOf(i) < 0) seen.push(i);
+    saveChapterState(i, seen);
+    return seen;
+  }
+
+  function showChapter(i, scrollTop) {
+    var chs = reader.chapters;
+    if (!chs.length) return;
+    i = Math.min(Math.max(i, 0), chs.length - 1);
+    reader.cur = i;
+    chs.forEach(function (ch, k) { ch.el.hidden = prefs.mode === "bolim" && k !== i; });
+    var seen = markSeen(i);
+    updateSideToc(i, seen);
+    updateReaderBar(i);
+    if (scrollTop) {
+      var top = document.querySelector(".lesson").getBoundingClientRect().top + window.scrollY - 24;
+      window.scrollTo({ top: Math.max(0, top), behavior: "instant" });
+    }
+    updateProgress();
+  }
+
+  function applyMode() {
+    if (!reader.chapters.length) return;
+    if (prefs.mode === "bolim") {
+      if (reader.spy) { reader.spy.disconnect(); reader.spy = null; }
+      showChapter(reader.cur, false);
+    } else {
+      reader.chapters.forEach(function (ch) { ch.el.hidden = false; });
+      updateSideToc(reader.cur, (chapterState()[reader.id] || {}).seen || []);
+      startScrollSpy();
+    }
+    layoutSideToc();
+    updateProgress();
+  }
+
+  /* Yon mundarija */
+  function buildSideToc() {
+    var side = el("aside", "side-toc");
+    side.appendChild(el("div", "side-toc__title", "Bo'limlar"));
+    var ol = el("ol");
+    reader.chapters.forEach(function (ch, i) {
+      var li = el("li");
+      var b = el("button");
+      b.type = "button";
+      b.appendChild(el("span", "side-toc__num", String(i + 1)));
+      b.appendChild(el("span", null, ch.title));
+      b.addEventListener("click", function () {
+        if (prefs.mode === "bolim") {
+          showChapter(i, true);
+        } else {
+          markSeen(i);
+          ch.h2.scrollIntoView({ block: "start" });
+        }
+        if (side.classList.contains("is-sheet")) side.hidden = true;
+      });
+      li.appendChild(b);
+      ol.appendChild(li);
+    });
+    side.appendChild(ol);
+    side.appendChild(el("div", "side-toc__foot", ""));
+    document.body.appendChild(side);
+    reader.side = side;
+  }
+
+  function updateSideToc(active, seen) {
+    if (!reader.side) return;
+    var items = reader.side.querySelectorAll("li");
+    Array.prototype.forEach.call(items, function (li, k) {
+      li.classList.toggle("is-active", k === active);
+      li.classList.toggle("is-seen", seen.indexOf(k) >= 0);
+    });
+    var foot = reader.side.querySelector(".side-toc__foot");
+    if (foot) foot.textContent = seen.length + "/" + reader.chapters.length + " bo'lim o'qildi";
+  }
+
+  /* Yon panel sig'adimi? Sig'masa — mobil panel + ochiladigan ro'yxat */
+  function layoutSideToc() {
+    if (!reader.side) return;
+    var measure = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--measure"), 10) || 760;
+    var fits = window.innerWidth >= measure + 520;   // 1280px ekranda "o'rta" kenglik bilan sig'adi
+    reader.side.classList.toggle("is-sheet", !fits);
+    if (fits) {
+      reader.side.hidden = false;
+      if (reader.bar) reader.bar.style.display = "none";
+      document.body.classList.remove("has-reader-bar");
+    } else {
+      reader.side.hidden = true;               // faqat tugma bosilganda ochiladi
+      if (reader.bar) reader.bar.style.display = prefs.mode === "bolim" ? "flex" : "none";
+      document.body.classList.toggle("has-reader-bar", prefs.mode === "bolim");
+    }
+  }
+
+  /* Mobil pastki panel */
+  function buildReaderBar() {
+    var bar = el("div", "reader-bar");
+    var prev = el("button", "btn", "←"); prev.type = "button"; prev.title = "Oldingi bo'lim";
+    var mid = el("button", "reader-bar__mid"); mid.type = "button";
+    mid.appendChild(el("small", null, "")); mid.appendChild(el("span", null, ""));
+    var next = el("button", "btn btn--primary", "→"); next.type = "button"; next.title = "Keyingi bo'lim";
+    prev.addEventListener("click", function () { if (reader.cur > 0) showChapter(reader.cur - 1, true); });
+    next.addEventListener("click", function () { if (reader.cur < reader.chapters.length - 1) showChapter(reader.cur + 1, true); });
+    mid.addEventListener("click", function () {
+      if (!reader.side) return;
+      reader.side.hidden = !reader.side.hidden;
+    });
+    document.addEventListener("click", function (e) {
+      if (!reader.side || reader.side.hidden || !reader.side.classList.contains("is-sheet")) return;
+      if (reader.side.contains(e.target) || mid.contains(e.target)) return;
+      reader.side.hidden = true;
+    });
+    bar.appendChild(prev); bar.appendChild(mid); bar.appendChild(next);
+    document.body.appendChild(bar);
+    reader.bar = bar;
+  }
+
+  function updateReaderBar(i) {
+    if (!reader.bar) return;
+    var chs = reader.chapters;
+    reader.bar.querySelector("small").textContent = "Bo'lim " + (i + 1) + " / " + chs.length + " · ro'yxat";
+    reader.bar.querySelector("span").textContent = chs[i].title;
+    var btns = reader.bar.querySelectorAll(".btn");
+    btns[0].classList.toggle("is-disabled", i === 0);
+    btns[1].classList.toggle("is-disabled", i === chs.length - 1);
+  }
+
+  /* To'liq sahifa rejimida: qaysi bo'lim ko'rinib turibdi */
+  function startScrollSpy() {
+    if (!("IntersectionObserver" in window)) return;
+    var map = {};
+    reader.chapters.forEach(function (ch, i) { map[ch.h2.id] = i; });
+    reader.spy = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (!en.isIntersecting) return;
+        var i = map[en.target.id];
+        if (typeof i !== "number") return;
+        reader.cur = i;
+        var seen = markSeen(i);
+        updateSideToc(i, seen);
+      });
+    }, { rootMargin: "-10% 0px -70% 0px", threshold: 0 });
+    reader.chapters.forEach(function (ch) { reader.spy.observe(ch.h2); });
+  }
+
+  /* Yuqoridagi progress chizig'i */
+  function buildProgress() {
+    var bar = el("div", "read-progress");
+    document.body.appendChild(bar);
+    reader.progress = bar;
+    window.addEventListener("scroll", updateProgress, { passive: true });
+  }
+
+  function updateProgress() {
+    if (!reader.progress) return;
+    var scope = prefs.mode === "bolim" && reader.chapters[reader.cur]
+      ? reader.chapters[reader.cur].el
+      : document.querySelector(".lesson");
+    if (!scope) return;
+    var rect = scope.getBoundingClientRect();
+    var top = rect.top + window.scrollY;
+    var total = Math.max(1, rect.height - window.innerHeight * 0.6);
+    var pct = Math.min(100, Math.max(0, ((window.scrollY - top) / total) * 100));
+    reader.progress.style.width = pct + "%";
+  }
+
+  /* Klaviatura: bo'limma-bo'lim rejimida ← → bo'limlar orasida yuradi.
+     Chetga chiqqanda — dars o'zgaradi. true qaytarsa, hodisa ishlangan. */
+  function readerKey(key) {
+    if (!reader.chapters.length || prefs.mode !== "bolim") return false;
+    if (key === "ArrowRight" && reader.cur < reader.chapters.length - 1) { showChapter(reader.cur + 1, true); return true; }
+    if (key === "ArrowLeft" && reader.cur > 0) { showChapter(reader.cur - 1, true); return true; }
+    return false;
+  }
 
   /* ======================================================================
      PWA: ilova sifatida o'rnatish va oflayn rejim
@@ -524,10 +949,12 @@
     var darsId = document.documentElement.getAttribute("data-dars");
     var isIndex = document.body.getAttribute("data-page") === "index";
 
+    applyPrefs();                       // mavzu/shrift — chizishdan oldin
     registerServiceWorker();
     watchConnection();
     placeInstallButton();
     syncInstallCard();
+    if (isIndex) placePrefsButton();
 
     loadLessons().then(function (data) {
       if (isIndex) renderIndex(data);
@@ -550,6 +977,7 @@
         inner.appendChild(back);
         bar.appendChild(inner);
       }
+      if (darsId) { setupReader(darsId); placePrefsButton(); }
       placeInstallButton();
     });
   }
